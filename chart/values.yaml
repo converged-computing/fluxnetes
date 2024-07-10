@@ -5,8 +5,8 @@
 # Note that this is no longer built from the scheduler-plugins repo - it's built
 # directly from Kubernetes (in tree)
 scheduler:
-  name: fluence
-  image: ghcr.io/flux-framework/fluence:latest
+  name: fluxnetes
+  image: ghcr.io/flux-framework/fluxnetes:latest
   replicaCount: 1
   pullPolicy: Always
   leaderElect: false
@@ -14,7 +14,7 @@ scheduler:
 # The sidecar is explicitly the fluxion service. I'd like to
 # simplify this to use fluxion as a service
 sidecar:
-  image: ghcr.io/flux-framework/fluence-sidecar:latest
+  image: ghcr.io/flux-framework/fluxnetes-sidecar:latest
   policy: lonode
   pullPolicy: Always
   loggingLevel: "9"
@@ -25,43 +25,31 @@ sidecar:
   enableExternalService: false
   port: 4242
 
-# Let's add this now for podgroup from scheduler plugins upstream
-# we will eventually replace this with another controller.
+# NOTE: this can be removed, leaving for now
 controller:
   name: scheduler-plugins-controller
   image: registry.k8s.io/scheduler-plugins/controller:v0.28.9
-  # image: ghcr.io/flux-framework/fluence-controller:latest
   replicaCount: 1
-  pullPolicy: Always
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
 
 # LoadVariationRiskBalancing and TargetLoadPacking are not enabled by default
 # as they need extra RBAC privileges on metrics.k8s.io.
 
 plugins:
-  enabled: ["Fluence"]
+  enabled: ["Fluxnetes"]
   disabled: ["CapacityScheduling","NodeResourceTopologyMatch","NodeResourcesAllocatable","PrioritySort","Coscheduling"] # only in-tree plugins need to be defined here
-  # Disable EVERYTHING except for fluence
+  # Disable EVERYTHING except for fluxnetes
   # VolumeBinding is required for PreBind, NodeResourcesFit is required or you'll get mismatches
   # Yes - some of these are irrelevant for the use case here, but I'd rather be super
-  # conservative and be absolutely sure only fluence is running PreFilter to select nodes
+  # conservative and be absolutely sure only fluxnetes is running PreFilter to select nodes
   disabledAll: ["NodePorts", "VolumeRestrictions", "EBSLimits",
                 "GCEPDLimits", "NodeVolumeLimits", "AzureDiskLimits", "VolumeZone", 
                 "PodTopologySpread", "InterPodAffinity", "NodeAffinity",
                 "NodeUnschedulable", "NodeName", "TaintToleration", "DefaultPreemtion",
                 "NodeResourcesBalancedAllocation", "ImageLocality"]
 
-# Customize the enabled plugins' config.
-# Refer to the "pluginConfig" section of manifests/<plugin>/scheduler-config.yaml.
-# For example, for Coscheduling plugin, you want to customize the permit waiting timeout to 10 seconds:
-# pluginConfig:
-# - name: Coscheduling
-#  args:
-#    permitWaitingTimeSeconds: 10 # default is 60
-# Or, customize the other plugins
-# - name: NodeResourceTopologyMatch
-#   args:
-#     scoringStrategy:
-#       type: MostAllocated # default is LeastAllocated
 
 enableCertManager: true
 kubernetesClusterDomain: cluster.local

@@ -19,20 +19,17 @@ spec:
       containers:
       - name: scheduler-plugins-controller
         image: {{ .Values.controller.image }}
-        imagePullPolicy: {{ .Values.controller.pullPolicy }}
-        ports:
-        - containerPort: 9443
-          name: webhook-server
-          protocol: TCP
-        volumeMounts:
-        - mountPath: /tmp/k8s-webhook-server/serving-certs
-          name: cert
-          readOnly: true
-      volumes:
-      - name: cert
-        secret:
-          defaultMode: 420
-          secretName: webhook-server-cert
+        imagePullPolicy: IfNotPresent
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8}}
+      {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity: {{- toYaml . | nindent 8}}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations: {{- toYaml . | nindent 8}}
+      {{- end }}
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -50,14 +47,14 @@ spec:
     metadata:
       labels:
         component: scheduler
-        app: fluence-scheduler
+        app: fluxnetes-scheduler
     spec:
       serviceAccountName: {{ .Values.scheduler.name }}
       containers:
       - image: {{ .Values.sidecar.image }}
         imagePullPolicy: {{ .Values.sidecar.pullPolicy }}
         command:
-        - /go/src/fluence/bin/server
+        - /go/src/fluxnetes/bin/server
         - --policy={{ .Values.scheduler.policy }}
         - --port={{ .Values.scheduler.port }}
         {{ if .Values.scheduler.enableExternalService }}- --external-service{{ end }}
@@ -69,7 +66,6 @@ spec:
       - command:
         - /bin/kube-scheduler
         - --config=/etc/kubernetes/scheduler-config.yaml
-        - -v={{ .Values.scheduler.loggingLevel }}
         image: {{ .Values.scheduler.image }}
         imagePullPolicy: {{ .Values.scheduler.pullPolicy }}
         livenessProbe:
@@ -103,11 +99,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: fluence-service
+  name: fluxnetes-service
 spec:
   type: NodePort
   selector:
-    app: fluence-scheduler
+    app: fluxnetes-scheduler
   ports:
   - port: {{ .Values.scheduler.port }}
     targetPort: {{ .Values.scheduler.port }}
@@ -115,7 +111,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: fluence-ingress
+  name: fluxnetes-ingress
 spec:
   rules:
   - host: localhost
@@ -125,6 +121,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: fluence-service
+            name: fluxnetes-service
             port: 
               number: {{ .Values.scheduler.port }}{{ end }}

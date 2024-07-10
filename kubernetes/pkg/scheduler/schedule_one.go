@@ -81,7 +81,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	// https://github.com/kubernetes/kubernetes/issues/111672
 	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod))
 	ctx = klog.NewContext(ctx, logger)
-	logger.V(1).Info("This is a custom message for fluence", "pod", klog.KObj(pod))
+	logger.V(1).Info("This is a custom message for fluxnetes", "pod", klog.KObj(pod))
 	logger.V(4).Info("About to try and schedule pod", "pod", klog.KObj(pod))
 
 	fwk, err := sched.frameworkForPod(pod)

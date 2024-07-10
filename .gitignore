@@ -1,7 +1,4 @@
-plugins
-upstream
-scheduler-plugins
-sig-scheduler-plugins/pkg/fluence/bin/
+kubernetes/pkg/fluxnetes/bin/
 src/bin
-src/fluence/vendor
-upstrams
+src/fluxnetes/vendor
+upstreams

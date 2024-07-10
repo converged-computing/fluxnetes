@@ -25,14 +25,14 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/version" // for version metric registration
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
 
-	// We add fluence to core kubernetes to build into the scheduler command
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluence"
+	// We add fluxnetes to core kubernetes to build into the scheduler command
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes"
 )
 
 func main() {
-	// Fluence is actually added as an in-tree plugin here
+	// Fluxnetes is actually added as an in-tree plugin here
 	command := app.NewSchedulerCommand(
-		app.WithPlugin(fluence.Name, fluence.New),
+		app.WithPlugin(fluxnetes.Name, fluxnetes.New),
 	)
 	code := cli.Run(command)
 	os.Exit(code)

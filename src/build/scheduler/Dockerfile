@@ -23,8 +23,8 @@ RUN apt -y update && apt -y upgrade && apt install --no-install-recommends -y pr
 
 # These need to be on the LD_LIBRARY_PATH for the server to find at runtime
 ENV LD_LIBRARY_PATH=/usr/lib:/usr/lib/flux
-WORKDIR /go/src/fluence/
-COPY fluence Makefile /go/src/fluence/
+WORKDIR /go/src/fluxnetes/
+COPY fluxnetes Makefile /go/src/fluxnetes/
 
 RUN go mod tidy && \
     go mod vendor && \

@@ -1,9 +1,7 @@
 FROM ubuntu:latest AS base
-ARG sig_upstream="./upstreams/sig-scheduler-plugins"
 ARG k8s_upstream="./upstreams/kubernetes"
 ARG RELEASE_VERSION="v0.0.0"
 ARG ARCH=amd64
-ENV UPSTREAM=${sig_upstream}
 ENV K8S_UPSTREAM=${k8s_upstream}
 ENV RELEASE_VERSION=RELEASE_VERSION
 ENV ARCH=${ARCH}
@@ -21,9 +19,6 @@ RUN wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz  && tar -xvf go${G
 
 # This previously built kube-scheduler from the sig
 ENV PATH=$PATH:/usr/local/go/bin
-# WORKDIR /go/src/sigs.k8s.io/scheduler-plugins
-# COPY ${UPSTREAM} .
-# RUN RELEASE_VERSION=${RELEASE_VERSION} make build-scheduler.${ARCH}
 
 WORKDIR /go/src/k8s.io/kubernetes
 COPY ${K8S_UPSTREAM} .

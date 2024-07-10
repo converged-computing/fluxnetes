@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fluxnetes-job
+spec:
+  template:
+    spec:
+      schedulerName: fluxnetes
+      containers:
+      - name: fluxnetes-job
+        image: busybox
+        command: [echo, potato]
+      restartPolicy: Never
+  backoffLimit: 4
