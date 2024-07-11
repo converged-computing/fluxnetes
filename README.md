@@ -15,6 +15,7 @@ Fluxnetes builds two primary containers:
 
 The overall design is an experiment to blow up the internal "single pod" queue, and replace with using the fluxion (Flux Framework scheduler) instead. For this prototype, we will implement a queue service alongside Fluxion, and the main `schedule_one.go` logic will assemble groups (where a group can be a single pod) and then, upon reaching a minimum number of members, move to the official queue.
 
+The current design reproduces what fluence does, however we use the default PodGroup abstraction provided by Coscheduling. 
 This experiment will not be attempting to replace every functionality in the current Kubernetes ecosystem, but to provide a means to experiment with new ideas for scheduling.
 
 ## Deploy

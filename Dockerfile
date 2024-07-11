@@ -22,7 +22,12 @@ ENV PATH=$PATH:/usr/local/go/bin
 
 WORKDIR /go/src/k8s.io/kubernetes
 COPY ${K8S_UPSTREAM} .
+
+# We are adding coscheduling modules here instead of customizing
+# Hopefully Kubernetes core will eventually support a group abstraction
 RUN go get github.com/patrickmn/go-cache && \
+    go get sigs.k8s.io/controller-runtime/pkg/client && \
+    go get sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1 && \
     go work vendor && \
     make WHAT=cmd/kube-scheduler && \
     cp /go/src/k8s.io/kubernetes/_output/local/go/bin/kube-scheduler /bin/kube-scheduler

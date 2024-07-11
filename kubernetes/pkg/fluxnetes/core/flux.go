@@ -9,9 +9,9 @@ import (
 	fgroup "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 
 	pb "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/fluxion-grpc"
+	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/podspec"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -21,7 +21,7 @@ import (
 func (podGroupManager *PodGroupManager) AskFlux(
 	ctx context.Context,
 	pod corev1.Pod,
-	podGroup *types.PodGroup,
+	podGroup *v1alpha1.PodGroup,
 	groupName string,
 ) ([]string, error) {
 
@@ -146,7 +146,7 @@ func (podGroupManager *PodGroupManager) cleanup(pod *corev1.Pod, groupName strin
 
 	// Clean up previous pod->node assignments
 	pods, err := podGroupManager.podLister.Pods(pod.Namespace).List(
-		labels.SelectorFromSet(labels.Set{types.PodGroupLabel: groupName}),
+		labels.SelectorFromSet(labels.Set{v1alpha1.PodGroupLabel: groupName}),
 	)
 	// TODO need to handle this / understand why it's the case
 	if err != nil {

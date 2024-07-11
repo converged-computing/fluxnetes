@@ -55,14 +55,14 @@ spec:
         imagePullPolicy: {{ .Values.sidecar.pullPolicy }}
         command:
         - /go/src/fluxnetes/bin/server
-        - --policy={{ .Values.scheduler.policy }}
-        - --port={{ .Values.scheduler.port }}
+        - --policy={{ .Values.sidecar.policy }}
+        - --port={{ .Values.sidecar.port }}
         {{ if .Values.scheduler.enableExternalService }}- --external-service{{ end }}
         name: sidecar
         # These are exposed for the kubectl plugin
-        {{ if .Values.scheduler.enableExternalService }}ports:
-          - containerPort: {{ .Values.scheduler.port }}
-            hostPort: {{ .Values.scheduler.port }}{{ end }}
+        {{ if .Values.sidecar.enableExternalService }}ports:
+          - containerPort: {{ .Values.sidecar.port }}
+            hostPort: {{ .Values.sidecar.port }}{{ end }}
       - command:
         - /bin/kube-scheduler
         - --config=/etc/kubernetes/scheduler-config.yaml
@@ -74,7 +74,7 @@ spec:
             port: 10259
             scheme: HTTPS
           initialDelaySeconds: 15
-        name: scheduler-plugins-scheduler
+        name: scheduler
         readinessProbe:
           httpGet:
             path: /healthz

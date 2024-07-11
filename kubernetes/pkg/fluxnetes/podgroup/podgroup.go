@@ -23,7 +23,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
+	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 )
 
 // DefaultWaitTime is 60s if ScheduleTimeoutSeconds is not specified.
@@ -48,7 +48,7 @@ func CreateMergePatch(original, new interface{}) ([]byte, error) {
 
 // GetPodGroupLabel get pod group name from pod labels
 func GetPodGroupLabel(pod *v1.Pod) string {
-	return pod.Labels[types.PodGroupLabel]
+	return pod.Labels[v1alpha1.PodGroupLabel]
 }
 
 // GetPodGroupFullName get namespaced group name from pod labels
@@ -58,18 +58,4 @@ func GetPodGroupFullName(pod *v1.Pod) string {
 		return ""
 	}
 	return fmt.Sprintf("%v/%v", pod.Namespace, pgName)
-}
-
-// GetWaitTimeDuration returns a wait timeout based on the following precedences:
-// 1. spec.scheduleTimeoutSeconds of the given pg, if specified
-// 2. given scheduleTimeout, if not nil
-// 3. fall back to DefaultWaitTime
-func GetWaitTimeDuration(pg *types.PodGroup, scheduleTimeout *time.Duration) time.Duration {
-	if pg != nil && pg.Spec.ScheduleTimeoutSeconds != nil {
-		return time.Duration(*pg.Spec.ScheduleTimeoutSeconds) * time.Second
-	}
-	if scheduleTimeout != nil && *scheduleTimeout != 0 {
-		return *scheduleTimeout
-	}
-	return DefaultWaitTime
 }

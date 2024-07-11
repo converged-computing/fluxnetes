@@ -26,15 +26,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	informerv1 "k8s.io/client-go/informers/core/v1"
 	listerv1 "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
 
 	"k8s.io/kubernetes/pkg/scheduler/framework"
-	//	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/logger"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
+	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 
 	// Moved from sig-scheduler-plugins/pkg/util
 	util "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/labels"
@@ -78,7 +79,7 @@ func (s *FluxStateData) Clone() framework.StateData {
 type Manager interface {
 	PreFilter(context.Context, *corev1.Pod, *framework.CycleState) error
 	GetPodNode(*corev1.Pod) string
-	GetPodGroup(context.Context, *corev1.Pod) (string, *types.PodGroup)
+	GetPodGroup(context.Context, *corev1.Pod) (string, *v1alpha1.PodGroup)
 	GetCreationTimestamp(*corev1.Pod, time.Time) metav1.MicroTime
 	DeletePermittedPodGroup(string)
 	Permit(context.Context, *framework.CycleState, *corev1.Pod) Status
@@ -90,7 +91,7 @@ type Manager interface {
 // PodGroupManager defines the scheduling operation called
 type PodGroupManager struct {
 	// client is a generic controller-runtime client to manipulate both core resources and PodGroups.
-	//	client client.Client
+	client client.Client
 	// snapshotSharedLister is pod shared list
 	snapshotSharedLister framework.SharedLister
 	// scheduleTimeout is the default timeout for podgroup scheduling.
@@ -117,14 +118,14 @@ type PodGroupManager struct {
 
 // NewPodGroupManager creates a new operation object.
 func NewPodGroupManager(
-	//	client client.Client,
+	client client.Client,
 	snapshotSharedLister framework.SharedLister,
 	scheduleTimeout *time.Duration,
 	podInformer informerv1.PodInformer,
 	log *logger.DebugLogger,
 ) *PodGroupManager {
 	podGroupManager := &PodGroupManager{
-		//		client:               client,
+		client:               client,
 		snapshotSharedLister: snapshotSharedLister,
 		scheduleTimeout:      scheduleTimeout,
 		podLister:            podInformer.Lister(),
@@ -160,7 +161,7 @@ func (podGroupManager *PodGroupManager) ActivateSiblings(pod *corev1.Pod, state 
 	}
 
 	pods, err := podGroupManager.podLister.Pods(pod.Namespace).List(
-		labels.SelectorFromSet(labels.Set{types.PodGroupLabel: groupName}),
+		labels.SelectorFromSet(labels.Set{v1alpha1.PodGroupLabel: groupName}),
 	)
 	if err != nil {
 		klog.ErrorS(err, "Failed to obtain pods belong to a PodGroup", "podGroup", groupName)
@@ -203,7 +204,10 @@ func (podGroupManager *PodGroupManager) GetStatuses(
 
 // GetPodNode is a quick lookup to see if we have a node
 func (podGroupManager *PodGroupManager) GetPodNode(pod *corev1.Pod) string {
-	node, _ := podGroupManager.podToNode[pod.Name]
+	node, ok := podGroupManager.podToNode[pod.Name]
+	if !ok {
+		return ""
+	}
 	return node
 }
 
@@ -250,6 +254,8 @@ func (podGroupManager *PodGroupManager) PreFilter(
 	state *framework.CycleState,
 ) error {
 
+	// STOPPED HERE - need to ensure we have action to take without pod group
+	// restore this to working, do PR< and then start refactoring
 	podGroupManager.log.Info("[PodGroup PreFilter] pod %s", klog.KObj(pod))
 	groupName, podGroup := podGroupManager.GetPodGroup(ctx, pod)
 	if podGroup == nil {
@@ -262,7 +268,7 @@ func (podGroupManager *PodGroupManager) PreFilter(
 	}
 
 	pods, err := podGroupManager.podLister.Pods(pod.Namespace).List(
-		labels.SelectorFromSet(labels.Set{types.PodGroupLabel: util.GetPodGroupLabel(pod)}),
+		labels.SelectorFromSet(labels.Set{v1alpha1.PodGroupLabel: util.GetPodGroupLabel(pod)}),
 	)
 	if err != nil {
 		return fmt.Errorf("podLister list pods failed: %w", err)
@@ -341,14 +347,15 @@ func (podGroupManager *PodGroupManager) GetCreationTimestamp(pod *corev1.Pod, ts
 	if len(groupName) == 0 {
 		return metav1.NewMicroTime(ts)
 	}
-	var podGroup types.PodGroup
-	//	if err := podGroupManager.client.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: groupName}, &podGroup); err != nil {
-	//		return metav1.NewMicroTime(ts)
-	//	}
+
+	var podGroup v1alpha1.PodGroup
+	if err := podGroupManager.client.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: groupName}, &podGroup); err != nil {
+		return metav1.NewMicroTime(ts)
+	}
 	// First preference goes to microseconds. This should be set, as it is set by the first
 	// reconcile, and we wouldn'thave a pod group if it didn't pass through that.
-	if !podGroup.Status.CreationTime.IsZero() {
-		return podGroup.Status.CreationTime
+	if !podGroup.CreationTimestamp.IsZero() {
+		return metav1.NewMicroTime(podGroup.CreationTimestamp.Time)
 	}
 	// Fall back to CreationTime from Kubernetes, in seconds
 	// In practice this should not happen
@@ -380,15 +387,27 @@ func (podGroupManager *PodGroupManager) DeletePermittedPodGroup(groupName string
 }
 
 // GetPodGroup returns the PodGroup that a Pod belongs to in cache.
-func (podGroupManager *PodGroupManager) GetPodGroup(ctx context.Context, pod *corev1.Pod) (string, *types.PodGroup) {
+func (podGroupManager *PodGroupManager) GetPodGroup(ctx context.Context, pod *corev1.Pod) (string, *v1alpha1.PodGroup) {
 	groupName := util.GetPodGroupLabel(pod)
-	if len(groupName) == 0 {
-		return "", nil
+
+	podGroupManager.log.Info("Pod Group Name is %s", groupName)
+
+	// If we don't have a group, create one under fluxnetes namespace
+	if groupName == "" {
+		groupName = fmt.Sprintf("fluxnetes-group-%s", pod.Name)
 	}
-	var podGroup types.PodGroup
-	//	if err := podGroupManager.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: groupName}, &podGroup); err != nil {
-	//		return fmt.Sprintf("%v/%v", pod.Namespace, groupName), nil
-	//	}
+
+	// Do we have a group size? This will be parsed as a string, likely
+	//groupSize, ok := pod.Labels[labels.PodGroupSizeLabel]
+	//if !ok {
+	//	groupSize = "1"
+	//	pod.Labels[labels.PodGroupSizeLabel] = groupSize
+	//}
+
+	var podGroup v1alpha1.PodGroup
+	if err := podGroupManager.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: groupName}, &podGroup); err != nil {
+		return fmt.Sprintf("%v/%v", pod.Namespace, groupName), nil
+	}
 	return fmt.Sprintf("%v/%v", pod.Namespace, groupName), &podGroup
 }
 
