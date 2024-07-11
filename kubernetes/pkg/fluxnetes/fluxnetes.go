@@ -22,22 +22,24 @@ import (
 	"sync"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 
 	// Our logger moved into Kubernetes
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/logger"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
+	clientscheme "k8s.io/client-go/kubernetes/scheme"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	fcore "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/core"
 	fgroup "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	flabel "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/labels"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 )
 
 var (
@@ -81,6 +83,15 @@ func New(_ context.Context, obj runtime.Object, handle framework.Handle) (framew
 
 	ctx := context.TODO()
 
+	scheme := runtime.NewScheme()
+	_ = clientscheme.AddToScheme(scheme)
+	_ = v1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+	kubeClient, err := client.New(handle.KubeConfig(), client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, err
+	}
+
 	// Make fluxnetes his own little logger!
 	// This can eventually be a flag, but just going to set for now
 	// It shall be a very chonky file. Oh lawd he comin!
@@ -94,7 +105,7 @@ func New(_ context.Context, obj runtime.Object, handle framework.Handle) (framew
 	fluxPodsInformer.AddIndexers(cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 
 	podGroupManager := fcore.NewPodGroupManager(
-		//		client,
+		kubeClient,
 		handle.SnapshotSharedLister(),
 		&scheduleTimeDuration,
 		// Keep the podInformer (from frameworkHandle) as the single source of Pods.
@@ -111,8 +122,8 @@ func New(_ context.Context, obj runtime.Object, handle framework.Handle) (framew
 
 	backoffSeconds := time.Duration(podGroupBackoffSeconds) * time.Second
 	plugin := &Fluxnetes{
-		handle: handle,
-		//		podGroupManager:  podGroupManager,
+		handle:          handle,
+		podGroupManager: podGroupManager,
 		scheduleTimeout: &scheduleTimeDuration,
 		log:             l,
 		podGroupBackoff: &backoffSeconds,
@@ -120,7 +131,7 @@ func New(_ context.Context, obj runtime.Object, handle framework.Handle) (framew
 
 	// TODO this is not supported yet
 	// Account for resources in running cluster
-	err := plugin.RegisterExisting(ctx)
+	err = plugin.RegisterExisting(ctx)
 	return plugin, err
 }
 
@@ -247,7 +258,7 @@ func (fluxnetes *Fluxnetes) PostFilter(
 	groupName, podGroup := fluxnetes.podGroupManager.GetPodGroup(ctx, pod)
 	if podGroup == nil {
 		fluxnetes.log.Info("Pod does not belong to any group, pod %s", pod.Name)
-		return &framework.PostFilterResult{}, framework.NewStatus(framework.Unschedulable, "can not find pod group")
+		return &framework.PostFilterResult{}, framework.NewStatus(framework.Unschedulable, "cannot find pod group")
 	}
 
 	// This explicitly checks nodes, and we can skip scheduling another pod if we already
@@ -271,7 +282,7 @@ func (fluxnetes *Fluxnetes) PostFilter(
 
 	if fluxnetes.podGroupBackoff != nil {
 		pods, err := fluxnetes.handle.SharedInformerFactory().Core().V1().Pods().Lister().Pods(pod.Namespace).List(
-			labels.SelectorFromSet(labels.Set{types.PodGroupLabel: flabel.GetPodGroupLabel(pod)}),
+			labels.SelectorFromSet(labels.Set{v1alpha1.PodGroupLabel: flabel.GetPodGroupLabel(pod)}),
 		)
 		if err == nil && len(pods) >= int(podGroup.Spec.MinMember) {
 			fluxnetes.podGroupManager.BackoffPodGroup(groupName, *fluxnetes.podGroupBackoff)
