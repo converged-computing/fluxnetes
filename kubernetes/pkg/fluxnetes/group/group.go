@@ -27,7 +27,7 @@ func CreateFakeGroup(pod *corev1.Pod) *v1alpha1.PodGroup {
 	}
 }
 
-// GetCreationTimestamp first tries the fluence group, then falls back to the initial attempt timestamp
+// GetCreationTimestamp first tries the group, then falls back to the initial attempt timestamp
 // This is the only update we have made to the upstream PodGroupManager, because we are expecting
 // a MicroTime and not a time.Time.
 func GetCreationTimestamp(groupName string, podGroup *v1alpha1.PodGroup, podInfo *framework.QueuedPodInfo) metav1.MicroTime {

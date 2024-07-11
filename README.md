@@ -37,15 +37,44 @@ Then you can deploy as follows:
 ```bash
 ./hack/quick-build-kind.sh
 ```
-You'll then have the fluxnetes service running:
+You'll then have the fluxnetes service running, along with the scheduler plugins controller, which we
+currently have to use PodGroup.
 
 ```bash
 $ kubectl get pods
-NAME                         READY   STATUS    RESTARTS   AGE
-fluxnetes-66575b59d8-ghx8h   2/2     Running   0          8m53s
+NAME                                            READY   STATUS    RESTARTS   AGE
+fluxnetes-66575b59d8-ghx8h                      2/2     Running   0          8m53s
+scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running   0          8m53s
 ```
 
-Note that it does not function yet - I'm still working on that.
+You can then create a job:
+
+```bash
+kubectl apply -f examples/job.yaml
+```
+
+which will create each of a PodGroup and the associated job, which will run:
+
+```bash
+$ kubectl logs job-n8sfg 
+```
+```console
+potato
+```
+
+And complete.
+
+```bash
+$ kubectl get pods
+NAME                                            READY   STATUS     RESTARTS   AGE
+fluxnetes-66575b59d8-ghx8h                      2/2     Running    0          10m12s
+job-n8sfg                                       0/1     Completed  0          33s
+scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running    0          10m12s
+```
+
+And that's it! This is fully working, but this only means that we are going to next work on the new design.
+See [docs](docs) for notes on that.
+
 
 ## License
 

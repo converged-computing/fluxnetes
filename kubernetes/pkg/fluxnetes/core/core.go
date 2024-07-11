@@ -254,8 +254,6 @@ func (podGroupManager *PodGroupManager) PreFilter(
 	state *framework.CycleState,
 ) error {
 
-	// STOPPED HERE - need to ensure we have action to take without pod group
-	// restore this to working, do PR< and then start refactoring
 	podGroupManager.log.Info("[PodGroup PreFilter] pod %s", klog.KObj(pod))
 	groupName, podGroup := podGroupManager.GetPodGroup(ctx, pod)
 	if podGroup == nil {
