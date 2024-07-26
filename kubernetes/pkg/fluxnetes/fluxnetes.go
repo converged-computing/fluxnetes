@@ -78,6 +78,10 @@ const (
 	Name = "Fluxnetes"
 )
 
+func (fluxnetes *Fluxnetes) Name() string {
+	return Name
+}
+
 // Initialize and return a new Fluxnetes Scheduler Plugin
 func New(_ context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 
@@ -133,10 +137,6 @@ func New(_ context.Context, obj runtime.Object, handle framework.Handle) (framew
 	// Account for resources in running cluster
 	err = plugin.RegisterExisting(ctx)
 	return plugin, err
-}
-
-func (fluxnetes *Fluxnetes) Name() string {
-	return Name
 }
 
 // Fluxnetes has added delete, although I wonder if update includes that signal

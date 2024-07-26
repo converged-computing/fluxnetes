@@ -63,6 +63,8 @@ func (podGroupManager *PodGroupManager) AskFlux(
 	_, cancel := context.WithTimeout(context.Background(), 200*time.Second)
 	defer cancel()
 
+	// TODO: get a response, and if the response is "cannot allocate now"
+	// we need to just save to our data structure for later (service)
 	request := &pb.MatchRequest{
 		Ps:      jobspec,
 		Request: "allocate",

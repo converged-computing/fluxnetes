@@ -2,7 +2,7 @@
 
 ![docs/images/fluxnetes.png](docs/images/fluxnetes.png)
 
-Fluxnetes enables is a combination of Kubernetes and [Fluence](https://github.com/flux-framework/flux-k8s), both of which use the HPC-grade pod scheduling [Fluxion scheduler](https://github.com/flux-framework/flux-sched) to schedule pod groups to nodes. 
+Fluxnetes enables is a combination of Kubernetes and [Fluence](https://github.com/flux-framework/flux-k8s), both of which use the HPC-grade pod scheduling [Fluxion scheduler](https://github.com/flux-framework/flux-sched) to schedule pod groups to nodes. For our queue, we use [river](https://riverqueue.com/docs) backed by a Postgres database. The database is deployed alongside fluence and could be customized to use an operator instead.
 
 **Important** This is an experiment, and is under development. I will change this design a million times - it's how I tend to learn and work. I'll share updates when there is something to share. It deploys but does not work yet!
 
@@ -37,14 +37,15 @@ Then you can deploy as follows:
 ```bash
 ./hack/quick-build-kind.sh
 ```
-You'll then have the fluxnetes service running, along with the scheduler plugins controller, which we
+You'll then have the fluxnetes service running, a postgres database (for the job queue), along with the scheduler plugins controller, which we
 currently have to use PodGroup.
 
 ```bash
 $ kubectl get pods
 NAME                                            READY   STATUS    RESTARTS   AGE
-fluxnetes-66575b59d8-ghx8h                      2/2     Running   0          8m53s
-scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running   0          8m53s
+fluxnetes-6954cdcf64-gv7s7                      2/2     Running   0          87s
+postgres-c8d55999c-t6dtt                        1/1     Running   0          87s
+scheduler-plugins-controller-8676df7769-jvtwp   1/1     Running   0          87s
 ```
 
 You can then create a job:

@@ -5,7 +5,6 @@ package logger
 // It's a bad design, but will work for debugging.
 
 import (
-	"fmt"
 	"log"
 	"os"
 )
@@ -77,9 +76,6 @@ func (l *DebugLogger) log(level int, prefix string, message ...any) error {
 		prolog = prefix + " " + prolog
 	}
 	rest := message[1:]
-
-	//	msg := fmt.Sprintf(message...)
-	fmt.Printf("Compariing level %d <= %d\n", level, l.level)
 	if level <= l.level {
 		logger.Printf(prolog, rest...)
 	}

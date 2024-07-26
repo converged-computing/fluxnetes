@@ -30,5 +30,3 @@ message ResourceRequest {}
 message ResourceResponse {
     string graph = 1;
 }
-
-

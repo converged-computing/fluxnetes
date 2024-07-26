@@ -16,12 +16,15 @@ make REGISTRY=${REGISTRY} SCHEDULER_IMAGE=fluxnetes SIDECAR_IMAGE=fluxnetes-side
 # We load into kind so we don't need to push/pull and use up internet data ;)
 kind load docker-image ${REGISTRY}/fluxnetes-sidecar:latest
 kind load docker-image ${REGISTRY}/fluxnetes:latest
+kind load docker-image ${REGISTRY}/fluxnetes-postgres:latest
 
 # And then install using the charts. The pull policy ensures we use the loaded ones
 helm uninstall fluxnetes || true
 helm install \
+  --set postgres.image=${REGISTRY}/fluxnetes-postgres:latest \
   --set scheduler.image=${REGISTRY}/fluxnetes:latest \
+  --set sidecar.image=${REGISTRY}/fluxnetes-sidecar:latest \
+  --set postgres.pullPolicy=Never \
   --set scheduler.pullPolicy=Never \
   --set sidecar.pullPolicy=Never \
-  --set sidecar.image=${REGISTRY}/fluxnetes-sidecar:latest \
         fluxnetes chart/

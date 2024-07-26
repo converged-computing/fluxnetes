@@ -11,6 +11,10 @@ scheduler:
   pullPolicy: Always
   leaderElect: false
 
+database:
+  image: ghcr.io/flux-framework/fluxnetes-postgres:latest
+  pullPolicy: Always
+
 # The sidecar is explicitly the fluxion service. I'd like to
 # simplify this to use fluxion as a service
 sidecar:

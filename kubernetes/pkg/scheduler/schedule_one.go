@@ -95,6 +95,11 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 		return
 	}
 
+	// Dummy test to add job to queue, single pod
+	err = sched.Queue.Enqueue(ctx, pod)
+	if err != nil {
+		logger.Error(err, "Issue with enqueue")
+	}
 	logger.V(3).Info("Attempting to schedule pod", "pod", klog.KObj(pod))
 
 	// Synchronously attempt to find a fit for the pod.

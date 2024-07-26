@@ -231,12 +231,11 @@ func (g *FluxJGF) InitCluster(name string) (Node, error) {
 	return g.makeNewNode(resource, "", defaultUnit, defaultSize), nil
 }
 
+// WriteJGF writes the JGF to file
+// We need to do this to ensure GetResources can be called to return the graph
 func (g *FluxJGF) WriteJGF(path string) error {
-
-	encodedJGF, err := json.MarshalIndent(g, "", "  ")
-
+	encodedJGF, err := g.ToBytes()
 	if err != nil {
-		log.Fatalf("[JGF] json.Marshal failed with '%s'\n", err)
 		return err
 	}
 
@@ -253,4 +252,16 @@ func (g *FluxJGF) WriteJGF(path string) error {
 		return err
 	}
 	return nil
+}
+
+// ToString returns the JGF as bytes
+func (g *FluxJGF) ToBytes() ([]byte, error) {
+	encodedJGF, err := json.MarshalIndent(g, "", "  ")
+
+	// This is only provided as a meaningful error message, otherwise
+	// we could just return the above
+	if err != nil {
+		log.Fatalf("[JGF] json.Marshal failed with '%s'\n", err)
+	}
+	return encodedJGF, nil
 }

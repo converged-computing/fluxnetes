@@ -66,6 +66,17 @@ spec:
       - command:
         - /bin/kube-scheduler
         - --config=/etc/kubernetes/scheduler-config.yaml
+        env:
+          - name: DATABASE_URL
+            value: postgres://postgres:postgres@postgres:5432/postgres
+          - name: PGHOST
+            value: postgres
+          - name:  PGDATABASE
+            value: postgres
+          - name: PGPORT
+            value: "5432"
+          - name: PGPASSWORD
+            value: postgres
         image: {{ .Values.scheduler.image }}
         imagePullPolicy: {{ .Values.scheduler.pullPolicy }}
         livenessProbe:
@@ -76,10 +87,13 @@ spec:
           initialDelaySeconds: 15
         name: scheduler
         readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 10259
-            scheme: HTTPS
+          exec:
+            command:
+              - "sh"
+              - "-c"
+              - >
+                status=$(curl -ks  https://localhost:10259/healthz); if [ "$status" -ne "ok" ]; then exit 1; fi
+                pg_isready -d postgres -h postgres -p 5432 -U postgres;
         resources:
           requests:
             cpu: '0.1'
