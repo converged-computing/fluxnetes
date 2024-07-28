@@ -2,26 +2,28 @@ package fluxnetes
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"os"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	corev1 "k8s.io/api/core/v1"
+
+	//	v1 "k8s.io/api/core/v1"
 	klog "k8s.io/klog/v2"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/logger"
+	// "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/podspec"
 )
 
 const (
 	queueMaxWorkers = 10
 )
 
+// Queue holds handles to queue database and event handles
+// The database Pool also allows interacting with the pods table (database.go)
 type Queue struct {
 	Pool          *pgxpool.Pool
 	riverClient   *river.Client[pgx.Tx]
@@ -34,35 +36,6 @@ type ChannelFunction func()
 type QueueEvent struct {
 	Channel  <-chan *river.Event
 	Function ChannelFunction
-}
-
-type JobArgs struct {
-	ShouldSnooze bool `json:"shouldSnooze"`
-	//	Jobspec      *pb.PodSpec
-	GroupName string `json:"groupName"`
-}
-
-// The Kind MUST correspond to the <type>Args and <type>Worker
-func (args JobArgs) Kind() string { return "job" }
-
-type JobWorker struct {
-	river.WorkerDefaults[JobArgs]
-}
-
-// Work performs the AskFlux action. Cases include:
-// Allocated: the job was successful and does not need to be re-queued. We return nil (completed)
-// NotAllocated: the job cannot be allocated and needs to be retried (Snoozed)
-// Not possible for some reason, likely needs a cancel
-// See https://riverqueue.com/docs/snoozing-jobs
-func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
-	l := logger.NewDebugLogger(logger.LevelDebug, "/tmp/workers.log")
-	l.Info("I am running")
-	klog.Infof("[WORKER]", "JobStatus", "Running")
-	fmt.Println("I am running")
-	if job.Args.ShouldSnooze {
-		return river.JobSnooze(1 * time.Minute)
-	}
-	return nil
 }
 
 // NewQueue starts a new queue with a river client
@@ -129,22 +102,50 @@ func (q *Queue) setupEvents() {
 	q.EventChannels = append(q.EventChannels, channel)
 }
 
+// MoveQueue moves pods from provisional into the jobs queue
+func (q *Queue) MoveQueue() {
+
+	// If there is a group, wait for minMember.
+	// When we dispatch the group, will need to clean up this table
+
+}
+
 // Enqueue a new job to the queue
 // When we add a job, we have generated the jobspec and the group is ready.
 func (q *Queue) Enqueue(ctx context.Context, pod *corev1.Pod) error {
-	// TODO create database that has pod names, etc.
-	// We will add immediately to queue if no group
-	// If there is a group, wait for minMember.
-	// When we dispatch the group, will need to clean up this table
-	groupName := "test-group"
 
-	// TODO: this needs to be passed somehow to worker as json
-	// serializable for reference later, for both pod/jobspec
-	// Get the jobspec for the pod
-	//jobspec := podspec.PreparePodJobSpec(pod, groupName)
+	// Get the pod group - this does not alter the database, but just looks for it
+	podGroup, err := q.GetPodGroup(pod)
+	if err != nil {
+		return err
+	}
+	klog.Infof("Derived podgroup %s (%d) created at %s", podGroup.Name, podGroup.Size, podGroup.Timestamp)
 
-	// Create an enqueue the new job!
-	job := JobArgs{ShouldSnooze: true, GroupName: groupName}
+	// Case 1: add to queue if size 1 - we don't need to keep a record of it.
+	if podGroup.Size == 1 {
+		err = q.SubmitJob(ctx, pod, podGroup)
+	}
+	// Case 2: all other cases, add to pod table (if does not exist)
+	// Pods added to the table are checked at the end (and Submit if
+	// the group is ready, meaning having achieved minimum size.
+	q.EnqueuePod(ctx, pod, podGroup)
+	return nil
+}
+
+// SubmitJob subits the podgroup (and podspec) to the queue
+// It will later be given to AskFlux
+// TODO this should not rely on having a single pod.
+func (q *Queue) SubmitJob(ctx context.Context, pod *corev1.Pod, group *PodGroup) error {
+
+	// podspec needs to be serialized to pass to the job
+	asJson, err := json.Marshal(pod)
+	if err != nil {
+		return err
+	}
+
+	// Create and submit the new job! This needs to serialize as json, hence converting
+	// the podspec. It's not clear to me if we need to keep the original pod object
+	job := JobArgs{GroupName: group.Name, Podspec: string(asJson), GroupSize: group.Size}
 
 	// Start a transaction to insert a job - without this it won't run!
 	tx, err := q.Pool.Begin(ctx)
@@ -161,5 +162,5 @@ func (q *Queue) Enqueue(ctx context.Context, pod *corev1.Pod) error {
 	if row.Job != nil {
 		klog.Infof("Job %d was added to the queue", row.Job.ID)
 	}
-	return err
+	return nil
 }

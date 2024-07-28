@@ -473,6 +473,8 @@ func (sched *Scheduler) Run(ctx context.Context) {
 
 	// Setup a function to fire when a job event happens
 	// We probably want to add sched functions here
+	// Note that we can see queue stats here too:
+	// https://github.com/riverqueue/river/blob/master/event.go#L67-L71
 	waitForJob := func(subscribeChan <-chan *river.Event) {
 		select {
 		case event := <-subscribeChan:
@@ -480,7 +482,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				klog.Infof("Channel is closed\n")
 				return
 			}
-			klog.Infof("Got job with state: %s\n", event.Job.State)
+			klog.Infof("Got job %s with state: %s\n", event.Job, event.Job.State)
 		}
 	}
 

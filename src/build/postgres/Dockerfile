@@ -12,3 +12,5 @@ ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
 RUN go install github.com/riverqueue/river/cmd/river@latest && mv /root/go/bin/river /usr/local/bin
 # On start need to run:
 # runuser -l postgres -c '/usr/local/bin/river migrate-up --database-url postgres://localhost:5432/postgres'
+# this is relative to the Makefile that calls build
+COPY ./src/build/postgres/create-tables.sql /docker-entrypoint-initdb.d/
