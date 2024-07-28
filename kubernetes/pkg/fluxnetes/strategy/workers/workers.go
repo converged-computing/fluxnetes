@@ -1,4 +1,4 @@
-package fluxnetes
+package workers
 
 import (
 	"context"
@@ -18,10 +18,19 @@ import (
 )
 
 type JobArgs struct {
+
+	// Submit Args
 	Jobspec   string `json:"jobspec"`
 	Podspec   string `json:"podspec"`
 	GroupName string `json:"groupName"`
 	GroupSize int32  `json:"groupSize"`
+
+	// Nodes return to Kubernetes to bind
+	// We can eventually have a kubectl command
+	// to get a job too ;)
+	Nodes   []string `json:"nodes"`
+	FluxJob int64    `json:"jobid"`
+	PodId   string   `json:"podid"`
 }
 
 // The Kind MUST correspond to the <type>Args and <type>Worker
@@ -82,23 +91,18 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	klog.Info("Fluxion response %s", response)
 
-	// TODO we need a way to pass this information back to the scheduler as a notification
-	// TODO GetPodID should be renamed, because it will reflect the group
-	// podGroupManager.log.Info("[PodGroup AskFlux] Match response ID %s\n", response.GetPodID())
+	// We update the "Args" of the job to pass the node assignment back to the scheduler
+	job.Args.PodId = response.GetPodID()
+	job.Args.FluxJob = response.GetJobID()
 
-	// Get the nodelist and inspect
-	//	nodelist := response.GetNodelist()
-	//	for _, node := range nodelist {
-	//		nodes = append(nodes, node.NodeID)
-	//	}
-	//	jobid := uint64(response.GetJobID())
-	//	podGroupManager.log.Info("[PodGroup AskFlux] parsed node pods list %s for job id %d\n", nodes, jobid)
+	// Get the nodelist and serialize into list of strings for job args
+	nodelist := response.GetNodelist()
+	nodes := []string{}
+	for _, node := range nodelist {
+		nodes = append(nodes, node.NodeID)
+	}
+	job.Args.Nodes = nodes
 
-	// TODO would be nice to actually be able to ask flux jobs -a to fluxnetes
-	// That way we can verify assignments, etc.
-	//	podGroupManager.mutex.Lock()
-	//	podGroupManager.groupToJobId[groupName] = jobid
-	//	podGroupManager.mutex.Unlock()
-	//	return nodes, nil
+	klog.Infof("[Fluxnetes] nodes allocated %s for flux job id %d\n", nodes, job.Args.FluxJob)
 	return nil
 }

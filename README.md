@@ -76,6 +76,28 @@ scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running    0          10
 And that's it! This is fully working, but this only means that we are going to next work on the new design.
 See [docs](docs) for notes on that.
 
+## Development
+
+### Debugging Postgres
+
+It is often helpful to shell into the postgres container to see the database directly:
+
+```bash
+kubectl exec -it postgres-597db46977-9lb25 bash
+psql -U postgres
+
+# Connect to database 
+\c
+
+# list databases
+\l
+
+# show tables
+\dt
+
+# test a query
+SELECT group_name, group_size from pods_provisional;
+```
 
 ## License
 

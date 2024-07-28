@@ -95,11 +95,20 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 		return
 	}
 
-	// Dummy test to add job to queue, single pod
-	err = sched.Queue.Enqueue(ctx, pod)
+	// Add the pod to the provisional queue
+	fluxCtx, cancelEnqueue := context.WithCancel(ctx)
+	defer cancelEnqueue()
+	err = sched.Queue.Enqueue(fluxCtx, pod)
 	if err != nil {
-		logger.Error(err, "Issue with enqueue")
+		logger.Error(err, "Issue with fluxnetes Enqueue")
 	}
+
+	// Move from provisional to worker queue to schedule via events
+	err = sched.Queue.Schedule(fluxCtx)
+	if err != nil {
+		logger.Error(err, "Issue with fluxnetes Schedule")
+	}
+
 	logger.V(3).Info("Attempting to schedule pod", "pod", klog.KObj(pod))
 
 	// Synchronously attempt to find a fit for the pod.
