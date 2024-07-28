@@ -3,11 +3,13 @@ package workers
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
-	//	v1 "k8s.io/api/core/v1"
 	corev1 "k8s.io/api/core/v1"
 	klog "k8s.io/klog/v2"
 
@@ -15,6 +17,7 @@ import (
 
 	"github.com/riverqueue/river"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/podspec"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
 )
 
 type JobArgs struct {
@@ -25,12 +28,13 @@ type JobArgs struct {
 	GroupName string `json:"groupName"`
 	GroupSize int32  `json:"groupSize"`
 
-	// Nodes return to Kubernetes to bind
+	// Nodes return to Kubernetes to bind, and MUST
+	// have attributes for the Nodes and Podspecs.
 	// We can eventually have a kubectl command
 	// to get a job too ;)
-	Nodes   []string `json:"nodes"`
-	FluxJob int64    `json:"jobid"`
-	PodId   string   `json:"podid"`
+	Nodes   string `json:"nodes"`
+	FluxJob int64  `json:"jobid"`
+	PodId   string `json:"podid"`
 }
 
 // The Kind MUST correspond to the <type>Args and <type>Worker
@@ -91,9 +95,10 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	klog.Info("Fluxion response %s", response)
 
+	// These don't actually update, eventually we can update them also in the database update
 	// We update the "Args" of the job to pass the node assignment back to the scheduler
-	job.Args.PodId = response.GetPodID()
-	job.Args.FluxJob = response.GetJobID()
+	// job.Args.PodId = response.GetPodID()
+	// job.Args.FluxJob = response.GetJobID()
 
 	// Get the nodelist and serialize into list of strings for job args
 	nodelist := response.GetNodelist()
@@ -101,8 +106,31 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	for _, node := range nodelist {
 		nodes = append(nodes, node.NodeID)
 	}
-	job.Args.Nodes = nodes
+	nodeStr := strings.Join(nodes, ",")
 
-	klog.Infof("[Fluxnetes] nodes allocated %s for flux job id %d\n", nodes, job.Args.FluxJob)
+	// We must update the database with nodes from here with a query
+	// This will be sent back to the Kubernetes scheduler
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+
+	rows, err := pool.Query(ctx, queries.UpdateNodesQuery, nodeStr, job.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	// Collect rows into single result
+	// pgx.CollectRows(rows, pgx.RowTo[string])
+	// klog.Infof("Values: %s", values)
+
+	klog.Infof("[Fluxnetes] nodes allocated %s for flux job id %d\n", nodeStr, job.Args.FluxJob)
 	return nil
 }
+
+// If needed, to get a client from a worker (to submit more jobs)
+// client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
+// if err != nil {
+//	return fmt.Errorf("error getting client from context: %w", err)
+// }

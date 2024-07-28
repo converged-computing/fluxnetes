@@ -96,12 +96,14 @@ func (q *Queue) setupEvents() {
 
 	// Subscribers tell the River client the kinds of events they'd like to receive.
 	// We add them to a listing to be used by Kubernetes. These can be subscribed
-	// to from elsewhere too (anywhere)
+	// to from elsewhere too (anywhere). Note that we are not subscribing to failed
+	// or snoozed, because they right now mean "allocation not possible" and that
+	// is too much noise.
 	for _, event := range []river.EventKind{
 		river.EventKindJobCompleted,
 		river.EventKindJobCancelled,
-		river.EventKindJobFailed,
-		river.EventKindJobSnoozed,
+		// river.EventKindJobFailed,
+		// river.EventKindJobSnoozed,
 	} {
 		c, trigger := q.riverClient.Subscribe(event)
 		channel := &QueueEvent{Function: trigger, Channel: c}

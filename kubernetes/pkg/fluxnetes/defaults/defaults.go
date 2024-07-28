@@ -1,6 +1,11 @@
 package defaults
 
+import (
+	"math"
+)
+
 const (
-	MaxUint     = ^uint(0)
-	MaxAttempts = int(MaxUint >> 1)
+	// https://github.com/riverqueue/river/discussions/475
+	// The database column is an int16
+	MaxAttempts = math.MaxInt16
 )

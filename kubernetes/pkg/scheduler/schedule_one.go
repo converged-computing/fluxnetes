@@ -103,49 +103,15 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 		logger.Error(err, "Issue with fluxnetes Enqueue")
 	}
 
+	// TODO(vsoch): the schedulingCycle should be run here, and we should save everything we need for either
+	// the bindingCycle directly, OR information to pass to fluxion (nodes to skip, resources needed, etc)
+	// Right now I'm running it "faux" before the binding cycle, but not using any results, mainly to
+	// populate information about volumes, etc.
 	// Move from provisional to worker queue to schedule via events
 	err = sched.Queue.Schedule(fluxCtx)
 	if err != nil {
 		logger.Error(err, "Issue with fluxnetes Schedule")
 	}
-
-	logger.V(3).Info("Attempting to schedule pod", "pod", klog.KObj(pod))
-
-	// Synchronously attempt to find a fit for the pod.
-	start := time.Now()
-	state := framework.NewCycleState()
-	state.SetRecordPluginMetrics(rand.Intn(100) < pluginMetricsSamplePercent)
-
-	// Initialize an empty podsToActivate struct, which will be filled up by plugins or stay empty.
-	podsToActivate := framework.NewPodsToActivate()
-	state.Write(framework.PodsToActivateKey, podsToActivate)
-
-	schedulingCycleCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	scheduleResult, assumedPodInfo, status := sched.schedulingCycle(schedulingCycleCtx, state, fwk, podInfo, start, podsToActivate)
-	if !status.IsSuccess() {
-		sched.FailureHandler(schedulingCycleCtx, fwk, assumedPodInfo, status, scheduleResult.nominatingInfo, start)
-		return
-	}
-
-	// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).
-	go func() {
-		bindingCycleCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-
-		metrics.Goroutines.WithLabelValues(metrics.Binding).Inc()
-		defer metrics.Goroutines.WithLabelValues(metrics.Binding).Dec()
-
-		status := sched.bindingCycle(bindingCycleCtx, state, fwk, scheduleResult, assumedPodInfo, start, podsToActivate)
-		if !status.IsSuccess() {
-			sched.handleBindingCycleError(bindingCycleCtx, state, fwk, assumedPodInfo, start, scheduleResult, status)
-			return
-		}
-		// Usually, DonePod is called inside the scheduling queue,
-		// but in this case, we need to call it here because this Pod won't go back to the scheduling queue.
-		sched.SchedulingQueue.Done(assumedPodInfo.Pod.UID)
-	}()
 }
 
 var clearNominatedNode = &framework.NominatingInfo{NominatingMode: framework.ModeOverride, NominatedNodeName: ""}
@@ -265,14 +231,6 @@ func (sched *Scheduler) schedulingCycle(
 
 		return ScheduleResult{nominatingInfo: clearNominatedNode}, assumedPodInfo, runPermitStatus
 	}
-
-	// At the end of a successful scheduling cycle, pop and move up Pods if needed.
-	if len(podsToActivate.Map) != 0 {
-		sched.SchedulingQueue.Activate(logger, podsToActivate.Map)
-		// Clear the entries after activation.
-		podsToActivate.Map = make(map[string]*v1.Pod)
-	}
-
 	return scheduleResult, assumedPodInfo, nil
 }
 
@@ -289,22 +247,7 @@ func (sched *Scheduler) bindingCycle(
 
 	assumedPod := assumedPodInfo.Pod
 
-	// Run "permit" plugins.
-	if status := fwk.WaitOnPermit(ctx, assumedPod); !status.IsSuccess() {
-		if status.IsRejected() {
-			fitErr := &framework.FitError{
-				NumAllNodes: 1,
-				Pod:         assumedPodInfo.Pod,
-				Diagnosis: framework.Diagnosis{
-					NodeToStatusMap:      framework.NodeToStatusMap{scheduleResult.SuggestedHost: status},
-					UnschedulablePlugins: sets.New(status.Plugin()),
-				},
-			}
-			return framework.NewStatus(status.Code()).WithError(fitErr)
-		}
-		return status
-	}
-
+	// NOTE: permit plugins removed from here
 	// Run "prebind" plugins.
 	if status := fwk.RunPreBindPlugins(ctx, state, assumedPod, scheduleResult.SuggestedHost); !status.IsSuccess() {
 		if status.IsRejected() {
@@ -328,22 +271,12 @@ func (sched *Scheduler) bindingCycle(
 
 	// Calculating nodeResourceString can be heavy. Avoid it if klog verbosity is below 2.
 	logger.V(2).Info("Successfully bound pod to node", "pod", klog.KObj(assumedPod), "node", scheduleResult.SuggestedHost, "evaluatedNodes", scheduleResult.EvaluatedNodes, "feasibleNodes", scheduleResult.FeasibleNodes)
-	metrics.PodScheduled(fwk.ProfileName(), metrics.SinceInSeconds(start))
-	metrics.PodSchedulingAttempts.Observe(float64(assumedPodInfo.Attempts))
-	if assumedPodInfo.InitialAttemptTimestamp != nil {
-		metrics.PodSchedulingDuration.WithLabelValues(getAttemptsLabel(assumedPodInfo)).Observe(metrics.SinceInSeconds(*assumedPodInfo.InitialAttemptTimestamp))
-		metrics.PodSchedulingSLIDuration.WithLabelValues(getAttemptsLabel(assumedPodInfo)).Observe(metrics.SinceInSeconds(*assumedPodInfo.InitialAttemptTimestamp))
-	}
+
+	// Note(vsoch): metrics removed from here.
 	// Run "postbind" plugins.
 	fwk.RunPostBindPlugins(ctx, state, assumedPod, scheduleResult.SuggestedHost)
 
-	// At the end of a successful binding cycle, move up Pods if needed.
-	if len(podsToActivate.Map) != 0 {
-		sched.SchedulingQueue.Activate(logger, podsToActivate.Map)
-		// Unlike the logic in schedulingCycle(), we don't bother deleting the entries
-		// as `podsToActivate.Map` is no longer consumed.
-	}
-
+	// Note(vsoch): pods to activate update removed from here.
 	return nil
 }
 

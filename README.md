@@ -99,6 +99,16 @@ psql -U postgres
 SELECT group_name, group_size from pods_provisional;
 ```
 
+### TODO
+
+- [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
+- [ ] Discussion about how to respond to a "failed" allocation request (meaning we just can't give nodes now, likely to happen a lot). Maybe we need to do a reservation instead?
+- [ ] I think maybe we should do a match allocate else reserve instead (see issue [here](https://github.com/converged-computing/fluxnetes/issues/4))
+- [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
+- [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
+- [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
+- [ ] The provisional -> scheduled should do a sort for the timestamp (I mostly just forgot this)!
+
 ## License
 
 HPCIC DevTools is distributed under the terms of the MIT license.

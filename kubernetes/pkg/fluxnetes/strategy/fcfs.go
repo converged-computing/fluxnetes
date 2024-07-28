@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	klog "k8s.io/klog/v2"
 
@@ -38,30 +40,86 @@ func (FCFSBackfill) AddWorkers(workers *river.Workers) {
 	river.AddWorker(workers, &work.JobWorker{})
 }
 
-// queryReady checks if the number of pods we know of is >= required group size
-// TODO(vsoch) This currently returns the entire table, and the sql needs to be tweaked
-func (s FCFSBackfill) queryReady(ctx context.Context, pool *pgxpool.Pool) ([]work.JobArgs, error) {
-	rows, err := pool.Query(ctx, queries.SelectGroupsQuery)
+// queryGroupsAtSize returns groups that have achieved minimum size
+func (s FCFSBackfill) queryGroupsAtSize(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+
+	// First retrieve the group names that are the right size
+	rows, err := pool.Query(ctx, queries.SelectGroupsAtSizeQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	// Collect rows into slice of jobs
+	// Collect rows into single result
+	groupNames, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	klog.Infof("GROUP NAMES %s", groupNames)
+	return groupNames, err
+}
+
+// queryGroupsAtSize returns groups that have achieved minimum size
+func (s FCFSBackfill) deleteGroups(ctx context.Context, pool *pgxpool.Pool, groupNames []string) error {
+
+	// First retrieve the group names that are the right size
+	query := fmt.Sprintf(queries.DeleteGroupsQuery, strings.Join(groupNames, ","))
+	klog.Infof("DELETE %s", query)
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return err
+}
+
+// queryGroupsAtSize returns groups that have achieved minimum size
+func (s FCFSBackfill) getGroupsAtSize(ctx context.Context, pool *pgxpool.Pool, groupNames []string) ([]work.JobArgs, error) {
+
+	// Now we need to collect all the pods that match that.
+	query := fmt.Sprintf(queries.SelectGroupsQuery, strings.Join(groupNames, "','"))
+	klog.Infof("GET %s", query)
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Collect rows into map, and then slice of jobs
+	// The map whittles down the groups into single entries
+	// We will eventually not want to do that, assuming podspecs are different in a group
 	jobs := []work.JobArgs{}
+	lookup := map[string]work.JobArgs{}
 
 	// Collect rows into single result
 	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[JobModel])
-	klog.Infof("Models: %s", models)
 
-	// TODO(vsoch) we need to get unique podgroups here, and one representative podspec
-	// we will eventually want to instead have the ability to support unique podspecs
-	// under one group
+	// TODO(vsoch) we need to collect all podspecs here and be able to give that to the worker
 	for _, model := range models {
 		jobArgs := work.JobArgs{GroupName: model.GroupName, Podspec: model.Podspec, GroupSize: model.GroupSize}
+		lookup[model.GroupName] = jobArgs
+	}
+	for _, jobArgs := range lookup {
 		jobs = append(jobs, jobArgs)
 	}
-	klog.Infof("jobs: %s\n", jobs)
+	return jobs, nil
+}
+
+// queryReady checks if the number of pods we know of is >= required group size
+// TODO(vsoch) This currently returns the entire table, and the sql needs to be tweaked
+func (s FCFSBackfill) queryReady(ctx context.Context, pool *pgxpool.Pool) ([]work.JobArgs, error) {
+
+	// 1. Get the list of group names that have pod count >= their size
+	groupNames, err := s.queryGroupsAtSize(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Now we need to collect all the pods that match that.
+	jobs, err := s.getGroupsAtSize(ctx, pool, groupNames)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Finally, we need to delete them from provisional
+	err = s.deleteGroups(ctx, pool, groupNames)
 	return jobs, err
 }
 

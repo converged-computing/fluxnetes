@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -471,6 +472,9 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	sched.Queue = queue
 	defer sched.Queue.Pool.Close()
 
+	// Make an empty state for now, just for functions
+	state := framework.NewCycleState()
+
 	// Setup a function to fire when a job event happens
 	// We probably want to add sched functions here
 	// Note that we can see queue stats here too:
@@ -482,7 +486,70 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				klog.Infof("Channel is closed\n")
 				return
 			}
-			klog.Infof("Got job %s with state: %s\n", event.Job, event.Job.State)
+
+			// Parse event result into type
+			args := fluxnetes.JobResult{}
+			json.Unmarshal(event.Job.EncodedArgs[:], &args)
+			nodes := args.GetNodes()
+
+			if len(nodes) > 0 {
+
+				// TODO(vsoch): if we care about this, get from original schedule
+				start := time.Now()
+				podsToActivate := framework.NewPodsToActivate()
+
+				klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State)
+
+				var pod v1.Pod
+				err := json.Unmarshal([]byte(args.PodSpec), &pod)
+				if err != nil {
+					klog.Errorf("Podspec unmarshall error", err)
+				}
+				fwk, _ := sched.frameworkForPod(&pod)
+
+				// Parse the pod into PodInfo
+				// TODO add back in creation timestamp
+				podInfo, _ := framework.NewPodInfo(&pod)
+				queuedInfo := &framework.QueuedPodInfo{
+					PodInfo:   podInfo,
+					Timestamp: time.Now(),
+				}
+
+				// This is temporary because we need to still run the scheduling plugins that are in-tree (core)
+				// However - we aren't going to use the scheduleResult from here, we will derive our own!
+				// We eventually want to run this in the function above and provide the same volume, etc.
+				// information to fluxnetes (fluxion) to take into account.
+				schedulingCycleCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
+				_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
+
+				// We need to run a bind for each pod and node
+				for _, node := range nodes {
+					plan := ScheduleResult{SuggestedHost: node}
+
+					// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).
+					go func() {
+						bindingCycleCtx, cancel := context.WithCancel(ctx)
+						defer cancel()
+
+						status := sched.bindingCycle(bindingCycleCtx, state, fwk, plan, queuedInfo, start, podsToActivate)
+						if !status.IsSuccess() {
+							sched.handleBindingCycleError(bindingCycleCtx, state, fwk, queuedInfo, start, plan, status)
+							return
+						}
+						// Usually, DonePod is called inside the scheduling queue,
+						// but in this case, we need to call it here because this Pod won't go back to the scheduling queue.
+						sched.SchedulingQueue.Done(queuedInfo.Pod.UID)
+					}()
+
+				}
+				// assumedPodInfo.Pod should be the Podinfo "QueuedPodInfo"
+
+				klog.Infof("Pod %s", pod)
+			} else {
+				klog.Infof("Got job with state %s\n", event.Job.State)
+			}
+
 		}
 	}
 
