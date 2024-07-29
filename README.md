@@ -76,6 +76,38 @@ scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running    0          10
 And that's it! This is fully working, but this only means that we are going to next work on the new design.
 See [docs](docs) for notes on that.
 
+## Development
+
+### Debugging Postgres
+
+It is often helpful to shell into the postgres container to see the database directly:
+
+```bash
+kubectl exec -it postgres-597db46977-9lb25 bash
+psql -U postgres
+
+# Connect to database 
+\c
+
+# list databases
+\l
+
+# show tables
+\dt
+
+# test a query
+SELECT group_name, group_size from pods_provisional;
+```
+
+### TODO
+
+- [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
+- [ ] Discussion about how to respond to a "failed" allocation request (meaning we just can't give nodes now, likely to happen a lot). Maybe we need to do a reservation instead?
+- [ ] I think maybe we should do a match allocate else reserve instead (see issue [here](https://github.com/converged-computing/fluxnetes/issues/4))
+- [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
+- [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
+- [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
+- [ ] The provisional -> scheduled should do a sort for the timestamp (I mostly just forgot this)!
 
 ## License
 

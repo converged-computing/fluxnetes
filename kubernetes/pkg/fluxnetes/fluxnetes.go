@@ -19,6 +19,7 @@ package fluxnetes
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,18 @@ import (
 var (
 	GroupName = "scheduling.x-k8s.io"
 )
+
+// JobResult serializes a result from Fluxnetes in the scheduler back to metadata
+type JobResult struct {
+	JobID   int32  `json:"jobid"`
+	Nodes   string `json:"nodes"`
+	PodID   string `json:"podid"`
+	PodSpec string `json:"podspec"`
+}
+
+func (j JobResult) GetNodes() []string {
+	return strings.Split(j.Nodes, ",")
+}
 
 // Fluxnetes schedules pods in a group using Fluxion as a backend
 // We inherit cosched.Coscheduling to use some of the primary functions
