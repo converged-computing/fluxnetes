@@ -11,6 +11,10 @@ scheduler:
   pullPolicy: Always
   leaderElect: false
 
+database:
+  image: ghcr.io/flux-framework/fluxnetes-postgres:latest
+  pullPolicy: Always
+
 # The sidecar is explicitly the fluxion service. I'd like to
 # simplify this to use fluxion as a service
 sidecar:
@@ -38,6 +42,7 @@ controller:
 # as they need extra RBAC privileges on metrics.k8s.io.
 
 plugins:
+  # We keep this enabled for the custom queue sort
   enabled: ["Fluxnetes"]
   disabled: ["CapacityScheduling","NodeResourceTopologyMatch","NodeResourcesAllocatable","PrioritySort","Coscheduling"] # only in-tree plugins need to be defined here
   # Disable EVERYTHING except for fluxnetes

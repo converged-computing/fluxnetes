@@ -10,10 +10,10 @@ ENV ARCH=${ARCH}
 # but since we are adding custom kube-scheduler, and we don't need the controller
 # I moved the build logic up here instead of using hack/build-images.sh
 
-RUN apt-get update && apt-get install -y wget git vim build-essential iputils-ping
+RUN apt-get update && apt-get install -y wget git vim build-essential iputils-ping postgresql-client curl
 
 # Install Go
-ENV GO_VERSION=1.22.2
+ENV GO_VERSION=1.22.5
 RUN wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz  && tar -xvf go${GO_VERSION}.linux-amd64.tar.gz && \
          mv go /usr/local && rm go${GO_VERSION}.linux-amd64.tar.gz
 
@@ -28,6 +28,8 @@ COPY ${K8S_UPSTREAM} .
 RUN go get github.com/patrickmn/go-cache && \
     go get sigs.k8s.io/controller-runtime/pkg/client && \
     go get sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1 && \
+    go get github.com/riverqueue/river && \
+    go get github.com/riverqueue/river/riverdriver/riverpgxv5 && \
     go work vendor && \
     make WHAT=cmd/kube-scheduler && \
     cp /go/src/k8s.io/kubernetes/_output/local/go/bin/kube-scheduler /bin/kube-scheduler

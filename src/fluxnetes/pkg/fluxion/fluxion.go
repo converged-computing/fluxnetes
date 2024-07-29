@@ -20,7 +20,7 @@ type Fluxion struct {
 }
 
 // InitFluxion creates a new client to interaction with the fluxion API (via go bindings)
-func (fluxion *Fluxion) InitFluxion(policy string, label string) {
+func (fluxion *Fluxion) InitFluxion(policy, label string) {
 	fluxion.cli = fluxcli.NewReapiClient()
 
 	klog.Infof("[Fluxnetes] Created flux resource client %s", fluxion.cli)
@@ -29,6 +29,7 @@ func (fluxion *Fluxion) InitFluxion(policy string, label string) {
 		return
 	}
 
+	// This file needs to be written for GetResources to read later
 	jgf, err := os.ReadFile(defaults.KubernetesJsonGraphFormat)
 	if err != nil {
 		klog.Error("Error reading JGF")

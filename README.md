@@ -2,7 +2,7 @@
 
 ![docs/images/fluxnetes.png](docs/images/fluxnetes.png)
 
-Fluxnetes enables is a combination of Kubernetes and [Fluence](https://github.com/flux-framework/flux-k8s), both of which use the HPC-grade pod scheduling [Fluxion scheduler](https://github.com/flux-framework/flux-sched) to schedule pod groups to nodes. 
+Fluxnetes enables is a combination of Kubernetes and [Fluence](https://github.com/flux-framework/flux-k8s), both of which use the HPC-grade pod scheduling [Fluxion scheduler](https://github.com/flux-framework/flux-sched) to schedule pod groups to nodes. For our queue, we use [river](https://riverqueue.com/docs) backed by a Postgres database. The database is deployed alongside fluence and could be customized to use an operator instead.
 
 **Important** This is an experiment, and is under development. I will change this design a million times - it's how I tend to learn and work. I'll share updates when there is something to share. It deploys but does not work yet!
 
@@ -37,14 +37,15 @@ Then you can deploy as follows:
 ```bash
 ./hack/quick-build-kind.sh
 ```
-You'll then have the fluxnetes service running, along with the scheduler plugins controller, which we
+You'll then have the fluxnetes service running, a postgres database (for the job queue), along with the scheduler plugins controller, which we
 currently have to use PodGroup.
 
 ```bash
 $ kubectl get pods
 NAME                                            READY   STATUS    RESTARTS   AGE
-fluxnetes-66575b59d8-ghx8h                      2/2     Running   0          8m53s
-scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running   0          8m53s
+fluxnetes-6954cdcf64-gv7s7                      2/2     Running   0          87s
+postgres-c8d55999c-t6dtt                        1/1     Running   0          87s
+scheduler-plugins-controller-8676df7769-jvtwp   1/1     Running   0          87s
 ```
 
 You can then create a job:
@@ -75,6 +76,41 @@ scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running    0          10
 And that's it! This is fully working, but this only means that we are going to next work on the new design.
 See [docs](docs) for notes on that.
 
+## Development
+
+### Debugging Postgres
+
+It is often helpful to shell into the postgres container to see the database directly:
+
+```bash
+kubectl exec -it postgres-597db46977-9lb25 bash
+psql -U postgres
+
+# Connect to database 
+\c
+
+# list databases
+\l
+
+# show tables
+\dt
+
+# test a query
+SELECT group_name, group_size from pods_provisional;
+```
+
+### TODO
+
+- [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
+- [ ] Discussion about how to respond to a "failed" allocation request (meaning we just can't give nodes now, likely to happen a lot). Maybe we need to do a reservation instead?
+- [ ] I think maybe we should do a match allocate else reserve instead (see issue [here](https://github.com/converged-computing/fluxnetes/issues/4))
+- [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
+- [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
+- [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
+- [ ] The provisional -> scheduled should do a sort for the timestamp (I mostly just forgot this)!
+- [ ] when in basic working state, add back build and test workflows
+- [ ] There should be a label (or existing value in the pod) to indicate an expected completion time (this is for Fluxion). We can have a worker task that explicitly cleans up the pods when the job should be completed.
+- [x] remove fluence previous code
 
 ## License
 

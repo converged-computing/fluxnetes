@@ -15,11 +15,12 @@ ARCH ?= amd64
 # These are passed to build the sidecar
 REGISTRY ?= ghcr.io/flux-framework
 SIDECAR_IMAGE ?= fluxnetes-sidecar:latest
+POSTGRES_IMAGE ?= fluxnetes-postgres:latest
 SCHEDULER_IMAGE ?= fluxnetes
 
-.PHONY: all build build-sidecar clone update push push-sidecar push-fluxnetes
+.PHONY: all build build-sidecar clone update push push-sidecar push-fluxnetes build-postgres
 
-all: prepare build-sidecar build
+all: prepare build-sidecar build build-postgres
 
 upstreams: 
 	mkdir -p $(UPSTREAMS)
@@ -47,5 +48,8 @@ push-fluxnetes:
 
 build-sidecar: 
 	make -C ./src LOCAL_REGISTRY=${REGISTRY} LOCAL_IMAGE=${SIDECAR_IMAGE}
+
+build-postgres: 
+	docker build -f src/build/postgres/Dockerfile -t ${REGISTRY}/${POSTGRES_IMAGE} .
 
 push: push-sidecar push-fluxnetes

@@ -69,10 +69,7 @@ func RegisterExisting(clientset *kubernetes.Clientset, ctx context.Context) (map
 }
 
 // CreateInClusterJGF creates the Json Graph Format from the Kubernetes API
-// We currently don't have support in fluxion to allocate jobs for existing pods,
-// so instead we create the graph with fewer resources. When that support is
-// remove the adjustment here, which is more of a hack
-func CreateInClusterJGF(filename string, skipLabel string) error {
+func CreateInClusterJGF(filename, skipLabel string) error {
 	ctx := context.Background()
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -231,6 +228,8 @@ func CreateInClusterJGF(filename string, skipLabel string) error {
 		}
 	}
 	fmt.Printf("\nCan request at most %d exclusive cpu", totalAllocCpu)
+
+	// Get the jgf back as bytes, and we will return string
 	err = fluxgraph.WriteJGF(filename)
 	if err != nil {
 		return err
@@ -239,8 +238,8 @@ func CreateInClusterJGF(filename string, skipLabel string) error {
 }
 
 // computeTotalRequests sums up the pod requests for the list. We do not consider limits.
-func computeTotalRequests(podList *corev1.PodList) (total map[corev1.ResourceName]resource.Quantity) {
-	total = map[corev1.ResourceName]resource.Quantity{}
+func computeTotalRequests(podList *corev1.PodList) map[corev1.ResourceName]resource.Quantity {
+	total := map[corev1.ResourceName]resource.Quantity{}
 	for _, pod := range podList.Items {
 		podReqs, _ := resourcehelper.PodRequestsAndLimits(&pod)
 		for podReqName, podReqValue := range podReqs {
@@ -252,7 +251,7 @@ func computeTotalRequests(podList *corev1.PodList) (total map[corev1.ResourceNam
 			}
 		}
 	}
-	return
+	return total
 }
 
 type allocation struct {
