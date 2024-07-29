@@ -171,6 +171,9 @@ func (sched *Scheduler) schedulingCycle(
 	}
 
 	metrics.SchedulingAlgorithmLatency.Observe(metrics.SinceInSeconds(start))
+
+	// NOTE: when refactored, this needs to be given the node from fluence
+	// Right now we get a message about mismatch between scheduled and assumed
 	// Tell the cache to assume that a pod now is running on a given node, even though it hasn't been bound yet.
 	// This allows us to keep scheduling without waiting on binding to occur.
 	assumedPodInfo := podInfo.DeepCopy()

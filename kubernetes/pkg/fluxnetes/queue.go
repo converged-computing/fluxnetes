@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -200,11 +199,5 @@ func (q *Queue) GetCreationTimestamp(pod *corev1.Pod, groupName string) (metav1.
 		klog.Info("Creation timestamp is", ts)
 		return ts, err
 	}
-
-	// This is the first member of the group - use its CreationTimestamp
-	if !pod.CreationTimestamp.IsZero() {
-		return metav1.NewMicroTime(pod.CreationTimestamp.Time), nil
-	}
-	// If the pod for some reasond doesn't have a timestamp, assume now
-	return metav1.NewMicroTime(time.Now()), nil
+	return groups.GetPodCreationTimestamp(pod), nil
 }

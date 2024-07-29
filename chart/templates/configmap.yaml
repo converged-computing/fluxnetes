@@ -1,4 +1,3 @@
-{{- if .Values.plugins.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,6 +13,11 @@ data:
     # Compose all plugins in one profile
     - schedulerName: {{ .Values.scheduler.name }}
       plugins:
+        queueSort:
+          enabled:
+          {{- range $.Values.plugins.enabled }}
+          - name: {{ title . }}
+          {{- end }}
         preBind:
           disabled:
            - name: {{ .Values.scheduler.name }}
@@ -48,10 +52,6 @@ data:
           - name: {{ title . }}
           {{- end }}
         multiPoint:
-          enabled:
-          {{- range $.Values.plugins.enabled }}
-          - name: {{ title . }}
-          {{- end }}
           disabled:
           {{- range $.Values.plugins.disabled }}
           - name: {{ title . }}
@@ -59,6 +59,3 @@ data:
       {{- if $.Values.pluginConfig }}
       pluginConfig: {{ toYaml $.Values.pluginConfig | nindent 6 }}
       {{- end }}
-
-  {{- /* TODO: wire CRD installation with enabled plugins. */}}
-{{- end }}
