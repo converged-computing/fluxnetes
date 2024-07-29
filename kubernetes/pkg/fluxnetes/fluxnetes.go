@@ -79,8 +79,8 @@ func (fluxnetes *Fluxnetes) Less(podInfo1, podInfo2 *framework.QueuedPodInfo) bo
 	// which is what fluxnetes needs to distinguish between namespaces. Just the
 	// name could be replicated between different namespaces
 	// TODO add some representation of PodGroup back
-	name1 := groups.GetPodGroupName(podInfo1.Pod)
-	name2 := groups.GetPodGroupName(podInfo2.Pod)
+	name1 := groups.GetPodGroupFullName(podInfo1.Pod)
+	name2 := groups.GetPodGroupFullName(podInfo2.Pod)
 
 	// Try for creation time first, and fall back to naming
 	creationTime1 := groups.GetPodCreationTimestamp(podInfo1.Pod)

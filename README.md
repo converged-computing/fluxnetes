@@ -109,6 +109,7 @@ SELECT group_name, group_size from pods_provisional;
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - [ ] The provisional -> scheduled should do a sort for the timestamp (I mostly just forgot this)!
 - [ ] when in basic working state, add back build and test workflows
+- [ ] There should be a label (or existing value in the pod) to indicate an expected completion time (this is for Fluxion). We can have a worker task that explicitly cleans up the pods when the job should be completed.
 - [x] remove fluence previous code
 
 ## License

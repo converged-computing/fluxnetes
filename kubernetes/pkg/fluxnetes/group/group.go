@@ -32,6 +32,13 @@ func GetPodGroupName(pod *corev1.Pod) string {
 	return groupName
 }
 
+// GetPodGroupFullName get namespaced group name from pod labels
+// This is primarily for sorting, so we consider namespace too.
+func GetPodGroupFullName(pod *corev1.Pod) string {
+	groupName := GetPodGroupName(pod)
+	return fmt.Sprintf("%v/%v", pod.Namespace, groupName)
+}
+
 // getPodGroupSize gets the group size, first from label then default of 1
 func GetPodGroupSize(pod *corev1.Pod) (int32, error) {
 

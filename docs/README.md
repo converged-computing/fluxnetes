@@ -2,12 +2,38 @@
 
 ## Design Notes
 
+> July 29, 2024
+
+Today we are merging in the "gut out and refactor" branch that does the following:
+
+ - Add Queue Manager (and queues design, shown and described below) 
+ - Remove what remains of Fluence (now Fluxnetes is just a shell to provide sort)
+ - Replace the default scheduler (schedulingCycle) with this approach (we still use bindingCycle)
+
+The new queue design is based on a producer consumer model in that there are  workers (the number of our choosing) each associated with different queues. The workers themselves can do different things, and this depends on both the queue and Queuing strategy (I say this because two different strategies can share a common worker design). Before we hit a worker queue, we have a provisional queue step. This means that:
+
+1. Incoming pods are added to a provisional table with their name, group, timestamp, and expected size.
+2. Pods are moved from the provisional table to the worker queue when they reach quorum (the minimum size)
+3. At this point, they go into the hands of a Queue Manager, ordered by their group timestamp.
+
+For the first that I've added, which I'm calling FCFS with backfill, the worker task does a call to fluxion, specifically a `MatchAllocate`. I am planning to change this to a `MatchAllocateElseReserve` so I can "snooze" the job to trigger again in the future given that it cannot be scheduled then and there. When the work is allocated, the metadata for the job (specifically args for "Nodes") is updated to carry the nodes forward to events that are listening for them. A subscription event is sent back to the main scheduler, which receives the nodes, and then performs binding. The pods are received as a group, meaning the binding of the group happens at the same time (in a loop, still one by one, but guaranteed to be in that order I think) and the work is run. Some (high level) work that still needs to be done:
+
+- The provisional queue hardened up to be provided (and exposed) as explicit interfaces (it is part of the main fluxnetes queue module now)
+- A pod label for an expected time (and a default time) could be used so every job has an expected end time (for Fluxion). A cancel queue would handle this.
+- The in-tree plugin outputs (needs for volumes, and what nodes can provide) needs to be exposed to Fluxion. Either fluxion can be told:
+  - "These nodes aren't possible for this work"
+  - "These are the only nodes you can consider for this work"
+  - "Here is a resource requirement you know about in your graph"
+
+There are more features that still need to be worked on and added (see the README.md of this repository) but this is a good start! One thing I am tickled by is that this does not need to be Kubernetes specific. It happens to be implemented within it, but the only detail that is relevant to Kubernetes is having a pod derive the underlying unit of work. All of the logic could be moved outside of it, with some other unit of work.
+
+![images/fluxnetes.png](images/fluxnetes.png)
+
 > July 10th, 2024
 
 Fluxnetes is functioning, on equal par with what fluence does to schedule and cancel pods. The difference is that I removed the webhook and controller to create PodGroup, and (for the time being) am relying on the user to create them. The reason is because I don't want to add the complexity of a new controller and webhook to Kubernetes. And instead of doing a custom CR (custom resource) for our PodGroup, I am using the one from coscheduling. THis allows install of the module without breaking smaller level dependencies. I'm not sure why that works, but it does!
 
 So the current state is that Fluxnetes is scheduling! My next step is to slowly add components for the new design, ensuring I don't break anything as I go, and going as far with that approach as I can until I need to swap it in. Then I'll likely need to be a bit more destructive and careful.
-
 
 > This was a group update on July 8th, 2024
 
