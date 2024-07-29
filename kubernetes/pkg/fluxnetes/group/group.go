@@ -8,10 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	klog "k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/labels"
-	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 )
 
 // A PodGroup holds the name and size of a pod group
@@ -53,54 +50,13 @@ func GetPodGroupSize(pod *corev1.Pod) (int32, error) {
 	return int32(size), nil
 }
 
-// TODO(vsoch) delete everything below here when PodGroup is no longer used
-// DefaultWaitTime is 60s if ScheduleTimeoutSeconds is not specified.
-const DefaultWaitTime = 60 * time.Second
+// GetPodCreationTimestamp
+func GetPodCreationTimestamp(pod *corev1.Pod) metav1.MicroTime {
 
-// CreateFakeGroup wraps an arbitrary pod in a fake group for fluxnetes to schedule
-// This happens only in PreFilter so we already sorted
-func CreateFakeGroup(pod *corev1.Pod) *v1alpha1.PodGroup {
-	groupName := fmt.Sprintf("fluxnetes-solo-%s-%s", pod.Namespace, pod.Name)
-	return &v1alpha1.PodGroup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      groupName,
-			Namespace: pod.Namespace,
-		},
-		Spec: v1alpha1.PodGroupSpec{MinMember: int32(1)},
+	// This is the first member of the group - use its CreationTimestamp
+	if !pod.CreationTimestamp.IsZero() {
+		return metav1.NewMicroTime(pod.CreationTimestamp.Time)
 	}
-}
-
-// GetCreationTimestamp first tries the group, then falls back to the initial attempt timestamp
-// This is the only update we have made to the upstream PodGroupManager, because we are expecting
-// a MicroTime and not a time.Time.
-func GetCreationTimestamp(groupName string, podGroup *v1alpha1.PodGroup, podInfo *framework.QueuedPodInfo) metav1.MicroTime {
-
-	// Don't try to get a time for a pod group that does not exist
-	if podGroup == nil {
-		return metav1.NewMicroTime(*podInfo.InitialAttemptTimestamp)
-	}
-
-	// IsZero is an indicator if this was actually set
-	// If the group label was present and we have a group, this will be true
-	if !podGroup.Status.ScheduleStartTime.IsZero() {
-		klog.Infof("   [Fluxnetes] Pod group %s was created at %s\n", groupName, podGroup.Status.ScheduleStartTime)
-		return metav1.NewMicroTime(podGroup.Status.ScheduleStartTime.Time)
-	}
-	// We should actually never get here.
-	klog.Errorf("   [Fluxnetes] Pod group %s time IsZero, we should not have reached here", groupName)
-	return metav1.NewMicroTime(*podInfo.InitialAttemptTimestamp)
-}
-
-// GetWaitTimeDuration returns a wait timeout based on the following precedences:
-// 1. spec.scheduleTimeoutSeconds of the given podGroup, if specified
-// 2. given scheduleTimeout, if not nil
-// 3. fall back to DefaultWaitTime
-func GetWaitTimeDuration(podGroup *v1alpha1.PodGroup, scheduleTimeout *time.Duration) time.Duration {
-	if podGroup != nil && podGroup.Spec.ScheduleTimeoutSeconds != nil {
-		return time.Duration(*podGroup.Spec.ScheduleTimeoutSeconds) * time.Second
-	}
-	if scheduleTimeout != nil && *scheduleTimeout != 0 {
-		return *scheduleTimeout
-	}
-	return DefaultWaitTime
+	// If the pod for some reasond doesn't have a timestamp, assume now
+	return metav1.NewMicroTime(time.Now())
 }

@@ -498,7 +498,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				start := time.Now()
 				podsToActivate := framework.NewPodsToActivate()
 
-				klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State)
+				klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State, nodes)
 
 				var pod v1.Pod
 				err := json.Unmarshal([]byte(args.PodSpec), &pod)

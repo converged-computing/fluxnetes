@@ -108,6 +108,8 @@ SELECT group_name, group_size from pods_provisional;
 - [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - [ ] The provisional -> scheduled should do a sort for the timestamp (I mostly just forgot this)!
+- [ ] when in basic working state, add back build and test workflows
+- [x] remove fluence previous code
 
 ## License
 
