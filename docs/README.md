@@ -10,6 +10,8 @@ Today we are merging in the "gut out and refactor" branch that does the followin
  - Remove what remains of Fluence (now Fluxnetes is just a shell to provide sort)
  - Replace the default scheduler (schedulingCycle) with this approach (we still use bindingCycle)
 
+![images/fluxnetes.png](images/fluxnetes.png)
+
 The new queue design is based on a producer consumer model in that there are  workers (the number of our choosing) each associated with different queues. The workers themselves can do different things, and this depends on both the queue and Queuing strategy (I say this because two different strategies can share a common worker design). Before we hit a worker queue, we have a provisional queue step. This means that:
 
 1. Incoming pods are added to a provisional table with their name, group, timestamp, and expected size.
@@ -27,7 +29,18 @@ For the first that I've added, which I'm calling FCFS with backfill, the worker 
 
 There are more features that still need to be worked on and added (see the README.md of this repository) but this is a good start! One thing I am tickled by is that this does not need to be Kubernetes specific. It happens to be implemented within it, but the only detail that is relevant to Kubernetes is having a pod derive the underlying unit of work. All of the logic could be moved outside of it, with some other unit of work.
 
-![images/fluxnetes.png](images/fluxnetes.png)
+### Queue Strategies
+
+Each queue strategy consists of:
+
+ - A number of N queues, each of which can have one or more worker types. Each worker type can have a custom function associated.
+ - A provisonal queue, again that can be customized to move pods based on the strategy.
+
+
+| Strategy | Description |
+|----------|-------------|
+| easy     | backfill with time-ordered priority only considering the first job's reservation (thanks to [@trws](https://github.com/trws) for the description!) |
+
 
 > July 10th, 2024
 
