@@ -1,4 +1,4 @@
-package podspec
+package resources
 
 import (
 	"strings"

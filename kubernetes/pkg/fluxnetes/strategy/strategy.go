@@ -3,6 +3,10 @@ package strategy
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+
+	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 )
@@ -19,4 +23,5 @@ type QueueStrategy interface {
 	// provide the entire queue to interact with
 	Schedule(ctx context.Context, pool *pgxpool.Pool) ([]river.InsertManyParams, error)
 	AddWorkers(*river.Workers)
+	Enqueue(context.Context, *pgxpool.Pool, *corev1.Pod, *groups.PodGroup) error
 }

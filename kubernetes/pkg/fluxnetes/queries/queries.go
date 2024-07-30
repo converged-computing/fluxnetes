@@ -13,7 +13,7 @@ const (
 	// 2. Then get the group_name, group_size, and podspec for each (this goes to scheduler)
 	// 3. Delete all from the table
 	// Ensure we are sorting by the timestamp when they were added (should be DESC I think)
-	SelectGroupsAtSizeQuery = "select group_name from pods_provisional group by group_name, group_size having group_size >= count(*);"
+	SelectGroupsAtSizeQuery = "select group_name from pods_provisional group by group_name, group_size, created_at having group_size >= count(*) order by created_at desc;"
 	SelectGroupsQuery       = "select group_name, group_size, podspec from pods_provisional where group_name in ('%s');"
 	DeleteGroupsQuery       = "delete from pods_provisional where group_name in ('%s');"
 )

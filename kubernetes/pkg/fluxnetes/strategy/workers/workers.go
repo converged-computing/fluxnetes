@@ -16,8 +16,8 @@ import (
 	pb "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/fluxion-grpc"
 
 	"github.com/riverqueue/river"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/podspec"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/resources"
 )
 
 type JobArgs struct {
@@ -63,7 +63,7 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	// IMPORTANT: this is a JobSpec for *one* pod, assuming they are all the same.
 	// This obviously may not be true if we have a hetereogenous PodGroup.
 	// We name it based on the group, since it will represent the group
-	jobspec := podspec.PreparePodJobSpec(&pod, job.Args.GroupName)
+	jobspec := resources.PreparePodJobSpec(&pod, job.Args.GroupName)
 	klog.Infof("Prepared pod jobspec %s", jobspec)
 
 	// Connect to the Fluxion service. Returning an error means we retry

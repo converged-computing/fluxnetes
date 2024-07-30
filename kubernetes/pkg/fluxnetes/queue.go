@@ -2,7 +2,6 @@ package fluxnetes
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"os"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
@@ -51,8 +49,9 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	}
 
 	// The default strategy now mirrors what fluence with Kubernetes does
-	// This can eventually be customizable
-	strategy := strategies.FCFSBackfill{}
+	// This can eventually be customizable. We provide the pool to the
+	// strategy because it also manages the provisional queue.
+	strategy := strategies.EasyBackfill{}
 	workers := river.NewWorkers()
 
 	// Each strategy has its own worker type
@@ -132,41 +131,13 @@ func (q *Queue) Enqueue(ctx context.Context, pod *corev1.Pod) error {
 	klog.Infof("Pod %s has Group %s (%d) created at %s", pod.Name, groupName, size, ts)
 
 	// Add the pod to the provisional table.
+	// Every strategy can have a custom provisional queue
 	group := &groups.PodGroup{Size: size, Name: groupName, Timestamp: ts}
-	return q.enqueueProvisional(ctx, pod, group)
-}
-
-// EnqueueProvisional adds a pod to the provisional queue
-func (q *Queue) enqueueProvisional(ctx context.Context, pod *corev1.Pod, group *groups.PodGroup) error {
-
-	// This query will fail if there are no rows (the podGroup is not known)
-	var groupName, name, namespace string
-	row := q.Pool.QueryRow(context.Background(), queries.GetPodQuery, group.Name, pod.Namespace, pod.Name)
-	err := row.Scan(groupName, name, namespace)
-
-	// We didn't find the pod in the table - add it.
-	if err != nil {
-		klog.Errorf("Did not find pod %s in group %s in table", pod.Name, group)
-
-		// Prepare timestamp and podspec for insertion...
-		ts := &pgtype.Timestamptz{Time: group.Timestamp.Time, Valid: true}
-		podspec, err := json.Marshal(pod)
-		if err != nil {
-			return err
-		}
-		_, err = q.Pool.Query(ctx, queries.InsertPodQuery, string(podspec), pod.Namespace, pod.Name, ts, group.Name, group.Size)
-
-		// Show the user a success or an error, we return it either way
-		if err != nil {
-			klog.Infof("Error inserting provisional pod %s", err)
-		}
-		return err
-	}
-	return err
+	return q.Strategy.Enqueue(ctx, q.Pool, pod, group)
 }
 
 // Schedule moves jobs from provisional to work queue
-// This is based on a queue strategy. The default is fcfs with backfill.
+// This is based on a queue strategy. The default is easy with backfill.
 // This mimics what Kubernetes does. Note that jobs can be sorted
 // based on the scheduled at time AND priority.
 func (q *Queue) Schedule(ctx context.Context) error {
