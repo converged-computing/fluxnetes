@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job2
+spec:
+  completions: 2
+  parallelism: 2
+  template:
+    metadata:
+      labels:
+        scheduling.x-k8s.io/pod-group: job
+    spec:
+      schedulerName: fluxnetes
+      containers:
+      - name: job
+        image: busybox
+        command: [echo, potato]
+      restartPolicy: Never
+  backoffLimit: 4

@@ -14,6 +14,7 @@ import (
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivershared/util/slogutil"
 
 	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
@@ -27,10 +28,14 @@ const (
 // Queue holds handles to queue database and event handles
 // The database Pool also allows interacting with the pods table (database.go)
 type Queue struct {
-	Pool          *pgxpool.Pool
-	riverClient   *river.Client[pgx.Tx]
-	EventChannels []*QueueEvent
-	Strategy      strategies.QueueStrategy
+	Pool         *pgxpool.Pool
+	riverClient  *river.Client[pgx.Tx]
+	EventChannel *QueueEvent
+	Strategy     strategies.QueueStrategy
+
+	// IMPORTANT: subscriptions need to use same context
+	// that client submit them uses
+	Context context.Context
 }
 
 type ChannelFunction func()
@@ -43,7 +48,7 @@ type QueueEvent struct {
 
 // NewQueue starts a new queue with a river client
 func NewQueue(ctx context.Context) (*Queue, error) {
-	dbPool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	dbPool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +62,8 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	// Each strategy has its own worker type
 	strategy.AddWorkers(workers)
 	riverClient, err := river.NewClient(riverpgxv5.New(dbPool), &river.Config{
-		Logger: slog.Default().With("id", "Fluxnetes"),
+		Logger: slog.New(&slogutil.SlogMessageOnlyHandler{Level: slog.LevelWarn}),
+		// Logger: slog.Default().With("id", "Fluxnetes"),
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: queueMaxWorkers},
 		},
@@ -72,7 +78,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	if err != nil {
 		return nil, err
 	}
-	queue := Queue{riverClient: riverClient, Pool: dbPool, Strategy: strategy}
+	queue := Queue{riverClient: riverClient, Pool: dbPool, Strategy: strategy, Context: ctx}
 	queue.setupEvents()
 	return &queue, nil
 }
@@ -90,29 +96,24 @@ func (q *Queue) Stop(ctx context.Context) error {
 // setupEvents create subscription channels for each event type
 func (q *Queue) setupEvents() {
 
-	q.EventChannels = []*QueueEvent{}
-
 	// Subscribers tell the River client the kinds of events they'd like to receive.
 	// We add them to a listing to be used by Kubernetes. These can be subscribed
 	// to from elsewhere too (anywhere). Note that we are not subscribing to failed
 	// or snoozed, because they right now mean "allocation not possible" and that
 	// is too much noise.
-	for _, event := range []river.EventKind{
+	c, trigger := q.riverClient.Subscribe(
 		river.EventKindJobCompleted,
 		river.EventKindJobCancelled,
-		// river.EventKindJobFailed,
-		// river.EventKindJobSnoozed,
-	} {
-		c, trigger := q.riverClient.Subscribe(event)
-		channel := &QueueEvent{Function: trigger, Channel: c}
-		q.EventChannels = append(q.EventChannels, channel)
-	}
+		river.EventKindJobFailed,
+		river.EventKindJobSnoozed,
+	)
+	q.EventChannel = &QueueEvent{Function: trigger, Channel: c}
 }
 
 // Enqueue a new job to the provisional queue
 // 1. Assemble (discover or define) the group
 // 2. Add to provisional table
-func (q *Queue) Enqueue(ctx context.Context, pod *corev1.Pod) error {
+func (q *Queue) Enqueue(pod *corev1.Pod) error {
 
 	// Get the pod name and size, first from labels, then defaults
 	groupName := groups.GetPodGroupName(pod)
@@ -133,23 +134,22 @@ func (q *Queue) Enqueue(ctx context.Context, pod *corev1.Pod) error {
 	// Add the pod to the provisional table.
 	// Every strategy can have a custom provisional queue
 	group := &groups.PodGroup{Size: size, Name: groupName, Timestamp: ts}
-	return q.Strategy.Enqueue(ctx, q.Pool, pod, group)
+	return q.Strategy.Enqueue(q.Context, q.Pool, pod, group)
 }
 
 // Schedule moves jobs from provisional to work queue
 // This is based on a queue strategy. The default is easy with backfill.
 // This mimics what Kubernetes does. Note that jobs can be sorted
 // based on the scheduled at time AND priority.
-func (q *Queue) Schedule(ctx context.Context) error {
-
+func (q *Queue) Schedule() error {
 	// Queue Strategy "Schedule" moves provional to the worker queue
 	// We get them back in a back to schedule
-	batch, err := q.Strategy.Schedule(ctx, q.Pool)
+	batch, err := q.Strategy.Schedule(q.Context, q.Pool)
 	if err != nil {
 		return err
 	}
 
-	count, err := q.riverClient.InsertMany(ctx, batch)
+	count, err := q.riverClient.InsertMany(q.Context, batch)
 	if err != nil {
 		return err
 	}

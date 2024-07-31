@@ -263,7 +263,7 @@ type allocation struct {
 
 // ParseAllocResult takes an allocated (string) and parses into a list of allocation
 // We include the pod namespace/name for debugging later
-func ParseAllocResult(allocated, podName string) []allocation {
+func ParseAllocResult(allocated, groupName string) []allocation {
 	var dat map[string]interface{}
 	result := []allocation{}
 
@@ -299,7 +299,7 @@ func ParseAllocResult(allocated, podName string) []allocation {
 			corecount = 0
 		}
 	}
-	fmt.Printf("Final node result for %s\n", podName)
+	fmt.Printf("Final node result for %s\n", groupName)
 	for i, alloc := range result {
 		fmt.Printf("Node %d: %s\n", i, alloc.Name)
 		fmt.Printf("  Type: %s\n  Name: %s\n  Basename: %s\n  CoreCount: %d\n",
