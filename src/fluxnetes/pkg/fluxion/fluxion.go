@@ -68,7 +68,9 @@ func (fluxion *Fluxion) Cancel(ctx context.Context, in *pb.CancelRequest) (*pb.C
 }
 
 // Match wraps the MatchAllocate function of the fluxion go bindings
-// If a match is not possible, we return the error and an empty response
+// If a match is not possible, we return an empty response with allocated false
+// This should only return an error if there is some issue with Fluxion
+// or the task of matching.
 func (fluxion *Fluxion) Match(ctx context.Context, in *pb.MatchRequest) (*pb.MatchResponse, error) {
 
 	emptyResponse := &pb.MatchResponse{}
@@ -77,46 +79,54 @@ func (fluxion *Fluxion) Match(ctx context.Context, in *pb.MatchRequest) (*pb.Mat
 	klog.Infof("[Fluxnetes] Received Match request %v\n", in)
 
 	// Generate the jobspec, array of bytes converted to string
-	spec, err := jobspec.CreateJobSpecYaml(in.Ps, in.Count)
+	spec, err := jobspec.CreateJobSpecYaml(in.Podspec, in.Count)
 	if err != nil {
 		return emptyResponse, err
 	}
 
-	// Ask flux to match allocate!
-	reserved, allocated, at, overhead, jobid, fluxerr := fluxion.cli.MatchAllocate(false, string(spec))
+	// Ask flux to match allocate, either with or without a reservation
+	reserved, allocated, at, overhead, jobid, fluxerr := fluxion.cli.MatchAllocate(in.Reserve, string(spec))
 	utils.PrintOutput(reserved, allocated, at, overhead, jobid, fluxerr)
 
 	// Be explicit about errors (or not)
+	// These errors are related to matching, not whether it is possible or not,
+	// and should not happen.
 	errorMessages := fluxion.cli.GetErrMsg()
 	if errorMessages == "" {
-		klog.Infof("[Fluxnetes] There are no errors")
+		klog.Info("[Fluxnetes] There are no errors")
 	} else {
-		klog.Infof("[Fluxnetes] Match errors so far: %s\n", errorMessages)
+		klog.Infof("[Fluxnetes] Match errors so far %s", errorMessages)
 	}
 	if fluxerr != nil {
-		klog.Infof("[Fluxnetes] Match Flux err is %w\n", fluxerr)
+		klog.Errorf("[Fluxnetes] Match Flux err is", fluxerr)
 		return emptyResponse, errors.New("[Fluxnetes] Error in ReapiCliMatchAllocate")
 	}
 
-	// This usually means we cannot allocate
-	// We need to return an error here otherwise we try to pass an empty string
-	// to other RPC endpoints and get back an error.
-	if allocated == "" {
-		klog.Infof("[Fluxnetes] Allocated is empty")
-		return emptyResponse, errors.New("Allocation was not possible")
-	}
+	// It's OK if we can't allocate, it means we can reserve and let the client
+	// handle this information how they see fit. If we can allocate, we return
+	// the nodes.
+	nodelist := []*pb.NodeAlloc{}
+	haveAllocation := allocated != ""
 
-	// Pass the spec name in so we can include it in the allocation result
-	// This will allow us to inspect the ordering later.
-	nodetasks := utils.ParseAllocResult(allocated, in.Ps.Container)
-	nodetaskslist := make([]*pb.NodeAlloc, len(nodetasks))
-	for i, result := range nodetasks {
-		nodetaskslist[i] = &pb.NodeAlloc{
-			NodeID: result.Basename,
-			Tasks:  int32(result.CoreCount) / in.Ps.Cpu,
+	if haveAllocation {
+		// Pass the job name (the group) for inspection/ordering later
+		nodetasks := utils.ParseAllocResult(allocated, in.JobName)
+		nodelist = make([]*pb.NodeAlloc, len(nodetasks))
+		for i, result := range nodetasks {
+			nodelist[i] = &pb.NodeAlloc{
+				NodeID: result.Basename,
+				Tasks:  int32(result.CoreCount) / in.Podspec.Cpu,
+			}
 		}
 	}
-	mr := &pb.MatchResponse{PodID: in.Ps.Id, Nodelist: nodetaskslist, JobID: int64(jobid)}
+
+	mr := &pb.MatchResponse{
+		Nodelist:   nodelist,
+		JobID:      uint64(jobid),
+		Reserved:   reserved,
+		ReservedAt: at,
+		Allocated:  haveAllocation,
+	}
 	klog.Infof("[Fluxnetes] Match response %v \n", mr)
 	return mr, nil
 }

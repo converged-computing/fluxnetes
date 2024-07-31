@@ -1,6 +1,77 @@
 # Fluxnetes
 
-## Design Notes
+## Design
+
+### How does it work?
+
+This is the current design of Fluxnetes.
+
+![images/fluxnetes.png](images/fluxnetes.png)
+
+High level - we are deploying a custom entrypoint for the scheduler that doesn't add a plugin, but changes the Kubernetes core "Schedule" package to use Fluxion to schedule groups instead of single pods. We add a custom queue manager and ability to subscribe to events. More detail is provided in the sections below.
+
+#### Entrypoint
+
+We start with a custom scheduler plugin, however we are primarily using this as a trick to provide our own custom `kube-scheduler` entrypoint, which mimics the same [app](https://github.com/kubernetes/kubernetes/tree/master/cmd/kube-scheduler) as core Kubernetes, but we use our custom build of the core instead. You can find this in [kubernetes/cmd/kube-scheduler/](kubernetes/cmd/kube-scheduler/) and you'll notice that we technically do register Fluxnetes as a custom plugin. This is only done to provide a custom sort function that sorts pod by the same group name that will be collected (and assembled into groups) in the new Scheduler core. We also don't use the `kubernetes-sigs/scheduler-plugins` repository as a base to keep the number of dependencies at a minimum. Instead we maintain our own charts in `chart` (shown below).
+
+#### Organization
+
+The repository has the following organization:
+
+```console
+├── chart        # charts to deploy fluxnetes
+├── docs         # you are here!
+├── hack         # helpers for deployment
+├── kubernetes   # charts to deploy fluxnetes
+├── src          # deployment source code for fluxion sidecar
+└── upstreams    # cloned kubernetes
+```
+
+The codebase here is designed to be updated - the files that we have changed (in `kubernetes` under equivalent paths) are moved into an upstream clone at build time. We move them to be under `pkg/scheduler/framework/plugins` since that is where other in-tree plugins live, but Fluxnetes (the name of the package being `fluxnetes` is anything but that). Most of our changed code is in the `scheduler.go` and `schedule_one.go` files, and then the entire custom logic is added newly. This is a strategy to (hopefully) help with future updates, which we will be able to do via a combination of automation with testing and pull requests with new Kubernetes releases.
+
+#### Containers
+
+Fluxnetes had the challenge of needing to add state. The scheduler-plugins "Coscheduling" plugin used the strategy of a PodGroup, but I decided to take (what I deemed to be) a more straight-forward approach, adding an actual database to back the queues. This meant adding a postgres container. The entire set of containers are as follows:
+
+ - `ghcr.io/converged-computing/fluxnetes`: contains a custom kube-scheduler build with flux as the primary scheduler.
+ - `ghcr.io/converged-computing/fluxnetes-sidecar`: provides the fluxion service, queue for pods and groups, and a second service that will expose a kubectl command for inspection of state.
+ - `ghcr.io/converged-computing/fluxnetes-postgres`: holds the worker queue and provisional queue tables
+
+We deploy one pod for postgres, and one pod that ombines the fluxnetes and its sidecar. The third pod we deploy is the scheduler plugins controller, which might be possible to remove but I haven't tested that yet.
+
+#### Queues
+
+As you can see in the picture, there is a Queue Manager. The Queue manager is started on "boot," meaning that it (and its client and) subscribed events) persist throughout the life of the plugin (Kubernetes) running. The queue manager owns a client that can have one or more worker types. We currently have just one Queue Strategy - a "first come first serve with backfill" sort of deal. There are several steps required to get this working, because as you might know, Kubernetes starts with a queue of single pods!
+
+1. We receive single pods (after being sorted by the Fluxnetes plugin) according to group name and time created.
+2. We add them to a provisional table, where we also save that information along with size.
+ - a single pod is a group of size 1
+3. For each run of the Kubernetes `ScheduleOne` function (meaning we receive a new pod) we:
+ - add to the provisional table
+ - check the table for pod groups that have reached the desired size
+ - submit the jobs to the worker queue that have, and remove from the provisonal table
+4. Once in the worker queue, they are ordered by Priority and scheduledAt time.
+5. The worker function does a call to fluxion `MatchAllocateElseReserve`
+ - A reservation is put back into the queue - it will be run again!
+ - The reservation can be saved somewhere to inform the user (some future kubectl plugin)
+ - we can also ask the worker to run its "work" function in the future, either at onset or some event in the run
+6. If allocated, the event goes back to the main schedule loop and the binding occurs
+
+We currently don't elegantly handle the scheduleCycle and bindingCycle call (in that we might want to give metadata to fluxion that goes into them). This needs to be done!
+
+#### Queue Strategies
+
+Each queue strategy consists of:
+
+ - A number of N queues, each of which can have one or more worker types. Each worker type can have a custom function associated.
+ - A provisonal queue, again that can be customized to move pods based on the strategy.
+
+| Strategy | Description |
+|----------|-------------|
+| easy     | backfill with time-ordered priority only considering the first job's reservation (thanks to [@trws](https://github.com/trws) for the description!) |
+
+
+## Notes
 
 > July 29, 2024
 
@@ -9,8 +80,6 @@ Today we are merging in the "gut out and refactor" branch that does the followin
  - Add Queue Manager (and queues design, shown and described below) 
  - Remove what remains of Fluence (now Fluxnetes is just a shell to provide sort)
  - Replace the default scheduler (schedulingCycle) with this approach (we still use bindingCycle)
-
-![images/fluxnetes.png](images/fluxnetes.png)
 
 The new queue design is based on a producer consumer model in that there are  workers (the number of our choosing) each associated with different queues. The workers themselves can do different things, and this depends on both the queue and Queuing strategy (I say this because two different strategies can share a common worker design). Before we hit a worker queue, we have a provisional queue step. This means that:
 
@@ -28,18 +97,6 @@ For the first that I've added, which I'm calling FCFS with backfill, the worker 
   - "Here is a resource requirement you know about in your graph"
 
 There are more features that still need to be worked on and added (see the README.md of this repository) but this is a good start! One thing I am tickled by is that this does not need to be Kubernetes specific. It happens to be implemented within it, but the only detail that is relevant to Kubernetes is having a pod derive the underlying unit of work. All of the logic could be moved outside of it, with some other unit of work.
-
-### Queue Strategies
-
-Each queue strategy consists of:
-
- - A number of N queues, each of which can have one or more worker types. Each worker type can have a custom function associated.
- - A provisonal queue, again that can be customized to move pods based on the strategy.
-
-
-| Strategy | Description |
-|----------|-------------|
-| easy     | backfill with time-ordered priority only considering the first job's reservation (thanks to [@trws](https://github.com/trws) for the description!) |
 
 
 > July 10th, 2024

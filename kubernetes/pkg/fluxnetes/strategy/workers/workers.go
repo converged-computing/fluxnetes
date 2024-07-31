@@ -3,6 +3,7 @@ package workers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ type JobWorker struct {
 // Are there cases of scheduling out into the future further?
 // See https://riverqueue.com/docs/snoozing-jobs
 func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
-	klog.Infof("[WORKER] JobStatus Running for group %s", job.Args.GroupName)
+	klog.Infof("[WORKER-START] JobStatus Running for group %s", job.Args.GroupName)
 
 	// Convert jobspec back to json, and then pod
 	var pod corev1.Pod
@@ -77,23 +78,39 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 
 	//	Let's ask Flux if we can allocate the job!
 	fluxion := pb.NewFluxionServiceClient(conn)
-	_, cancel := context.WithTimeout(context.Background(), 200*time.Second)
+	fluxionCtx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
 	defer cancel()
 
 	// Prepare the request to allocate.
+	// Note that reserve will just give an ETA for the future.
+	// We don't want to actually run this job again then, because newer
+	// jobs could come in and take precendence. It's more an FYI for the
+	// user when we expose some kubectl tool.
 	request := &pb.MatchRequest{
-		Ps:      jobspec,
-		Request: "allocate",
+		Podspec: jobspec,
+		Reserve: true,
 		Count:   job.Args.GroupSize,
+		JobName: job.Args.GroupName,
 	}
 
-	// An error here is an error with making the request
-	response, err := fluxion.Match(context.Background(), request)
+	// An error here is an error with making the request, nothing about
+	// the match/allocation itself.
+	response, err := fluxion.Match(fluxionCtx, request)
 	if err != nil {
-		klog.Error("[Fluxnetes] AskFlux did not receive any match response: %v\n", err)
+		klog.Error("[Fluxnetes] AskFlux did not receive any match response", err)
 		return err
 	}
-	klog.Info("Fluxion response %s", response)
+
+	// This means we didn't get an allocation - we might have a reservation (to do
+	// something with later) but for now we just print it.
+	if !response.Allocated {
+		errorMessage := fmt.Sprintf("Fluxion could not allocate nodes for %s, ETA %d", job.Args.GroupName, response.ReservedAt)
+		klog.Info(errorMessage)
+
+		// This will have the job be retried in the queue, still based on sorted schedule time and priority
+		return fmt.Errorf(errorMessage)
+	}
+	klog.Infof("Fluxion response with allocation is %s", response)
 
 	// These don't actually update, eventually we can update them also in the database update
 	// We update the "Args" of the job to pass the node assignment back to the scheduler
@@ -108,24 +125,28 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	nodeStr := strings.Join(nodes, ",")
 
+	// Convert the response into an error code that indicates if we should run again.
 	// We must update the database with nodes from here with a query
 	// This will be sent back to the Kubernetes scheduler
-	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	// TODO(vsoch): should this be error (which will retry) or cancel (not)?
+	pool, err := pgxpool.New(fluxionCtx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
 	}
-
-	rows, err := pool.Query(ctx, queries.UpdateNodesQuery, nodeStr, job.ID)
+	rows, err := pool.Query(fluxionCtx, queries.UpdateNodesQuery, nodeStr, job.ID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
+	// TODO why aren't events being all sent sometimes?
+	// try putting subscription elsewhere?
+
 	// Collect rows into single result
 	// pgx.CollectRows(rows, pgx.RowTo[string])
 	// klog.Infof("Values: %s", values)
-
-	klog.Infof("[Fluxnetes] nodes allocated %s for flux job id %d\n", nodeStr, job.Args.FluxJob)
+	klog.Infof("[WORKER-COMPLETE] nodes allocated %s for group %s (flux job id %d)\n",
+		nodeStr, job.Args.GroupName, job.Args.FluxJob)
 	return nil
 }
 

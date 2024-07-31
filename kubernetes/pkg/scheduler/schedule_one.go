@@ -96,9 +96,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	}
 
 	// Add the pod to the provisional queue
-	fluxCtx, cancelEnqueue := context.WithCancel(ctx)
-	defer cancelEnqueue()
-	err = sched.Queue.Enqueue(fluxCtx, pod)
+	err = sched.Queue.Enqueue(pod)
 	if err != nil {
 		logger.Error(err, "Issue with fluxnetes Enqueue")
 	}
@@ -108,7 +106,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	// Right now I'm running it "faux" before the binding cycle, but not using any results, mainly to
 	// populate information about volumes, etc.
 	// Move from provisional to worker queue to schedule via events
-	err = sched.Queue.Schedule(fluxCtx)
+	err = sched.Queue.Schedule()
 	if err != nil {
 		logger.Error(err, "Issue with fluxnetes Schedule")
 	}

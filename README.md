@@ -5,18 +5,17 @@
 Fluxnetes enables is a combination of Kubernetes and [Fluence](https://github.com/flux-framework/flux-k8s), both of which use the HPC-grade pod scheduling [Fluxion scheduler](https://github.com/flux-framework/flux-sched) to schedule pod groups to nodes. For our queue, we use [river](https://riverqueue.com/docs) backed by a Postgres database. The database is deployed alongside fluence and could be customized to use an operator instead.
 
 **Important** This is an experiment, and is under development. I will change this design a million times - it's how I tend to learn and work. I'll share updates when there is something to share. It deploys but does not work yet!
+See the [docs](docs) for some detail on design choices.
 
 ## Design
 
-Fluxnetes builds two primary containers:
+Fluxnetes builds three primary containers:
 
- - `ghcr.io/converged-computing/fluxnetes`: contains the core kube-scheduler, with fluxion added as an in-tree plugin, and the core scheduling logic changed to remove the single pod queue.
+ - `ghcr.io/converged-computing/fluxnetes`: contains a custom kube-scheduler build with flux as the primary scheduler.
  - `ghcr.io/converged-computing/fluxnetes-sidecar`: provides the fluxion service, queue for pods and groups, and a second service that will expose a kubectl command for inspection of state.
+ - `ghcr.io/converged-computing/fluxnetes-postgres`: holds the worker queue and provisional queue tables
 
-The overall design is an experiment to blow up the internal "single pod" queue, and replace with using the fluxion (Flux Framework scheduler) instead. For this prototype, we will implement a queue service alongside Fluxion, and the main `schedule_one.go` logic will assemble groups (where a group can be a single pod) and then, upon reaching a minimum number of members, move to the official queue.
-
-The current design reproduces what fluence does, however we use the default PodGroup abstraction provided by Coscheduling. 
-This experiment will not be attempting to replace every functionality in the current Kubernetes ecosystem, but to provide a means to experiment with new ideas for scheduling.
+The overall design is an experiment to blow up the internal "single pod" queue, and replace with using the fluxion (Flux Framework scheduler) instead. For this prototype, we will implement a queue service alongside Fluxion, and the main `schedule_one.go` logic interacts with this setup to assemble groups and submit them to the queue manager, ultimately to be run on the Kubernetes cluster. 
 
 ## Deploy
 
@@ -67,10 +66,29 @@ And complete.
 
 ```bash
 $ kubectl get pods
-NAME                                            READY   STATUS     RESTARTS   AGE
-fluxnetes-66575b59d8-ghx8h                      2/2     Running    0          10m12s
-job-n8sfg                                       0/1     Completed  0          33s
-scheduler-plugins-controller-8676df7769-ss9kz   1/1     Running    0          10m12s
+NAME                                            READY   STATUS      RESTARTS      AGE
+fluxnetes-7bbb588944-4bq6w                      1/2     Running     2 (20m ago)   21m
+job-8xsqr                                       0/1     Completed   0             19m
+postgres-597db46977-srnln                       1/1     Running     0             21m
+scheduler-plugins-controller-8676df7769-wg5xl   1/1     Running     0             21m
+```
+
+You can also try submitting a bath of jobs:
+
+```bash
+kubectl apply -f examples/batch/
+```
+```console
+kubectl get pods
+NAME                                            READY   STATUS      RESTARTS      AGE
+fluxnetes-7bbb588944-49skf                      1/2     Running     3 (58s ago)   81s
+job1-k4v22                                      0/1     Completed   0             17s
+job2-8bmf7                                      0/1     Completed   0             17s
+job2-fmhrb                                      0/1     Completed   0             17s
+job3-7gp4n                                      0/1     Completed   0             17s
+job3-kfrt2                                      0/1     Completed   0             17s
+postgres-597db46977-sl4cm                       1/1     Running     0             81s
+scheduler-plugins-controller-8676df7769-zgzsj   1/1     Running     0             81s
 ```
 
 And that's it! This is fully working, but this only means that we are going to next work on the new design.
@@ -155,13 +173,19 @@ SELECT group_name, group_size from pods_provisional;
 ### TODO
 
 - [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
-- [ ] Discussion about how to respond to a "failed" allocation request (meaning we just can't give nodes now, likely to happen a lot). Maybe we need to do a reservation instead?
-- [ ] I think maybe we should do a match allocate else reserve instead (see issue [here](https://github.com/converged-computing/fluxnetes/issues/4))
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
 - [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - [ ] when in basic working state, add back build and test workflows
 - [ ] There should be a label (or existing value in the pod) to indicate an expected completion time (this is for Fluxion). We can have a worker task that explicitly cleans up the pods when the job should be completed.
+
+Thinking:
+
+- We should be able to move from provisoinal to pending, where pending is a queue.
+- When a job is allocated, we likely need to submit a cancel job that will ensure it can be cancelled when the time runs out
+  - add the label for the job timeout, default to one hour
+- We can allow trying to schedule jobs in the future, although I'm not sure about that use case.
+- When a job is not able to schedule, it should go into a rejected queue, which should finish and return a NOT SCHEDULABLE status.
 
 ## License
 

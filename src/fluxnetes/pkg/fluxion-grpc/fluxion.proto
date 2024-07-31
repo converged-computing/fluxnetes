@@ -21,10 +21,13 @@ message PodSpec {
 }
 
 // The Match request message (allocate, allocate_orelse_reserve)
+// TODO: this currently takes a podspec, and we multiply by a count
+// we should ideally support having a list of different pods
 message MatchRequest {
-    PodSpec ps = 1;
-    string request = 2;
+    PodSpec podspec = 1;
     int32 count = 3;
+    bool reserve = 4;
+    string jobName = 5;
 }
 
 // The Nodes/Cluster Update Status
@@ -35,9 +38,14 @@ message NodeAlloc {
 
 // The Match response message
 message MatchResponse {
-    string podID = 1;
+    uint64 jobID = 1;
     repeated NodeAlloc nodelist = 2;
-    int64 jobID = 3;
+    bool reserved = 3;
+    int64 reserved_at = 4;
+    // Only needed if we want stats or similar
+    // float overhead = 5;
+    // boolean to indicate allocated or not
+    bool allocated = 5;
 }
 
 message CancelRequest {
