@@ -2,6 +2,7 @@ package fluxnetes
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -36,6 +37,13 @@ type Queue struct {
 	// IMPORTANT: subscriptions need to use same context
 	// that client submit them uses
 	Context context.Context
+
+	// Reservation depth:
+	// Less than -1 is invalid (and throws error)
+	// -1 means no reservations are done
+	// 0 means reservations are done, but no depth set
+	// Anything greater than 0 is a reservation value
+	ReservationDepth int32
 }
 
 type ChannelFunction func()
@@ -62,10 +70,15 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	// Each strategy has its own worker type
 	strategy.AddWorkers(workers)
 	riverClient, err := river.NewClient(riverpgxv5.New(dbPool), &river.Config{
+		// Change the verbosity of the logger here
 		Logger: slog.New(&slogutil.SlogMessageOnlyHandler{Level: slog.LevelWarn}),
-		// Logger: slog.Default().With("id", "Fluxnetes"),
 		Queues: map[string]river.QueueConfig{
+
+			// Default queue handles job allocation
 			river.QueueDefault: {MaxWorkers: queueMaxWorkers},
+
+			// Cleanup queue is only for cancel
+			"cancel_queue": {MaxWorkers: queueMaxWorkers},
 		},
 		Workers: workers,
 	})
@@ -78,7 +91,20 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	if err != nil {
 		return nil, err
 	}
-	queue := Queue{riverClient: riverClient, Pool: dbPool, Strategy: strategy, Context: ctx}
+
+	// Validates reservation depth
+	depth := strategy.GetReservationDepth()
+	if depth < 0 {
+		return nil, fmt.Errorf("Reservation depth of a strategy must be >= -1")
+	}
+
+	queue := Queue{
+		riverClient:      riverClient,
+		Pool:             dbPool,
+		Strategy:         strategy,
+		Context:          ctx,
+		ReservationDepth: depth,
+	}
 	queue.setupEvents()
 	return &queue, nil
 }
@@ -104,8 +130,10 @@ func (q *Queue) setupEvents() {
 	c, trigger := q.riverClient.Subscribe(
 		river.EventKindJobCompleted,
 		river.EventKindJobCancelled,
-		river.EventKindJobFailed,
-		river.EventKindJobSnoozed,
+		// Be careful about re-enabling failed, that means you'll get a notification
+		// for every job that isn't allocated.
+		//		river.EventKindJobFailed, (retryable)
+		//		river.EventKindJobSnoozed, (scheduled later, not used yet)
 	)
 	q.EventChannel = &QueueEvent{Function: trigger, Channel: c}
 }
@@ -115,9 +143,13 @@ func (q *Queue) setupEvents() {
 // 2. Add to provisional table
 func (q *Queue) Enqueue(pod *corev1.Pod) error {
 
-	// Get the pod name and size, first from labels, then defaults
+	// Get the pod name, duration (seconds) and size, first from labels, then defaults
 	groupName := groups.GetPodGroupName(pod)
 	size, err := groups.GetPodGroupSize(pod)
+	if err != nil {
+		return err
+	}
+	duration, err := groups.GetPodGroupDuration(pod)
 	if err != nil {
 		return err
 	}
@@ -129,11 +161,16 @@ func (q *Queue) Enqueue(pod *corev1.Pod) error {
 	}
 
 	// Log the namespace/name, group name, and size
-	klog.Infof("Pod %s has Group %s (%d) created at %s", pod.Name, groupName, size, ts)
+	klog.Infof("Pod %s has Group %s (%d, %d seconds) created at %s", pod.Name, groupName, size, duration, ts)
 
 	// Add the pod to the provisional table.
 	// Every strategy can have a custom provisional queue
-	group := &groups.PodGroup{Size: size, Name: groupName, Timestamp: ts}
+	group := &groups.PodGroup{
+		Size:      size,
+		Name:      groupName,
+		Timestamp: ts,
+		Duration:  duration,
+	}
 	return q.Strategy.Enqueue(q.Context, q.Pool, pod, group)
 }
 
@@ -144,7 +181,7 @@ func (q *Queue) Enqueue(pod *corev1.Pod) error {
 func (q *Queue) Schedule() error {
 	// Queue Strategy "Schedule" moves provional to the worker queue
 	// We get them back in a back to schedule
-	batch, err := q.Strategy.Schedule(q.Context, q.Pool)
+	batch, err := q.Strategy.Schedule(q.Context, q.Pool, q.ReservationDepth)
 	if err != nil {
 		return err
 	}
@@ -154,7 +191,9 @@ func (q *Queue) Schedule() error {
 		return err
 	}
 	klog.Infof("[Fluxnetes] Schedule inserted %d jobs\n", count)
-	return nil
+
+	// Post submit functions
+	return q.Strategy.PostSubmit(q.Context, q.Pool, q.riverClient)
 }
 
 // GetCreationTimestamp returns the creation time of a podGroup or a pod in seconds (time.MicroTime)

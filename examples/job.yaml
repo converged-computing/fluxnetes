@@ -6,7 +6,7 @@ spec:
   template:
     metadata:
       labels:
-        scheduling.x-k8s.io/pod-group: job
+        fluxnetes.group-name: job
     spec:
       schedulerName: fluxnetes
       containers:

@@ -86,7 +86,6 @@ func (q *ProvisionalQueue) queryGroupsAtSize(ctx context.Context, pool *pgxpool.
 
 	// Collect rows into single result
 	groupNames, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	klog.Infof("GROUP NAMES %s", groupNames)
 	return groupNames, err
 }
 
@@ -95,7 +94,6 @@ func (q *ProvisionalQueue) deleteGroups(ctx context.Context, pool *pgxpool.Pool,
 
 	// First retrieve the group names that are the right size
 	query := fmt.Sprintf(queries.DeleteGroupsQuery, strings.Join(groupNames, ","))
-	klog.Infof("DELETE %s", query)
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return err
@@ -109,7 +107,6 @@ func (q *ProvisionalQueue) getGroupsAtSize(ctx context.Context, pool *pgxpool.Po
 
 	// Now we need to collect all the pods that match that.
 	query := fmt.Sprintf(queries.SelectGroupsQuery, strings.Join(groupNames, "','"))
-	klog.Infof("GET %s", query)
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return nil, err

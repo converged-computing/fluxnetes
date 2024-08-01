@@ -173,18 +173,22 @@ SELECT group_name, group_size from pods_provisional;
 ### TODO
 
 - [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
+ - Note that I've added a view I think will help with this - we need to regenerate it and do a join!
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
 - [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - [ ] when in basic working state, add back build and test workflows
-- [ ] There should be a label (or existing value in the pod) to indicate an expected completion time (this is for Fluxion). We can have a worker task that explicitly cleans up the pods when the job should be completed.
+  - need to test duration / completion time works (run job with short duration, should be cancelled/cleaned up)
+  - spam submission and test reservations (and cancel)
+- [ ] implement other queue strategies (fcfs and backfill with > 1 reservation depth)
+  - fcfs can work by only adding one job (first in provisional) to the worker queue at once, only when it's empty! lol.
+- [ ] create state diagram that shows how stuff works
+- [ ] When a job is allocated, we likely need to submit a cancel job that will ensure it can be cancelled when the time runs out
+  - add the label for the job timeout, default to one hour
 
 Thinking:
 
-- We should be able to move from provisoinal to pending, where pending is a queue.
-- When a job is allocated, we likely need to submit a cancel job that will ensure it can be cancelled when the time runs out
-  - add the label for the job timeout, default to one hour
-- We can allow trying to schedule jobs in the future, although I'm not sure about that use case.
+- We can allow trying to schedule jobs in the future, although I'm not sure about that use case (add label to do this)
 - When a job is not able to schedule, it should go into a rejected queue, which should finish and return a NOT SCHEDULABLE status.
 
 ## License

@@ -8,6 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/defaults"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/labels"
 )
 
@@ -17,6 +18,9 @@ type PodGroup struct {
 	Name      string
 	Size      int32
 	Timestamp metav1.MicroTime
+
+	// Duration in seconds
+	Duration int32
 }
 
 // getPodGroupName returns the pod group name
@@ -55,6 +59,30 @@ func GetPodGroupSize(pod *corev1.Pod) (int32, error) {
 		return 0, err
 	}
 	return int32(size), nil
+}
+
+// GetPodGroupDuration gets the runtime of a job in seconds
+// We default to an hour (3600 seconds)
+func GetPodGroupDuration(pod *corev1.Pod) (int32, error) {
+
+	// Do we have a group size? This will be parsed as a string, likely
+	duration, ok := pod.Labels[labels.PodGroupDurationLabel]
+	if !ok {
+		duration = "3600"
+		pod.Labels[labels.PodGroupDurationLabel] = duration
+	}
+
+	// We need the group size to be an integer now!
+	jobDuration, err := strconv.ParseInt(duration, 10, 32)
+	if err != nil {
+		return defaults.DefaultDuration, err
+	}
+
+	// The duration cannot be negative
+	if jobDuration < 0 {
+		return 0, fmt.Errorf("%s label must be >= 0", labels.PodGroupDurationLabel)
+	}
+	return int32(jobDuration), nil
 }
 
 // GetPodCreationTimestamp

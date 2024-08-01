@@ -1,5 +1,18 @@
 # Fluxnetes
 
+## Usage
+
+After install (see the [README](../README.md)) you can create any abstraction (pod or something with a pod template) that specifies the `schedulerName: fluxnetes` and has any of the following labels:
+
+| Name | Description | Default |
+|------|-------------|---------|
+| "fluxnetes.group-name" | The name of the group | fluxnetes-group-<namespace>-<name> |
+| "fluxnetes.group-size" | The size of the group | 1 |
+| "fluxnetes.duration"   | Duration of the job (seconds) | 3600 | 
+
+As you might guess, if you specify `fluxnetes` as the scheduler but don't provide any of the above, the defaults are used. This means a single
+pod becomes a single member group. If you set the duration to 0, it will be unlimited. If you set a negative value, you'll get an error.
+
 ## Design
 
 ### How does it work?
@@ -49,7 +62,7 @@ As you can see in the picture, there is a Queue Manager. The Queue manager is st
 3. For each run of the Kubernetes `ScheduleOne` function (meaning we receive a new pod) we:
  - add to the provisional table
  - check the table for pod groups that have reached the desired size
- - submit the jobs to the worker queue that have, and remove from the provisonal table
+ - submit the jobs to the worker queue that have, and remove from the provisional table
 4. Once in the worker queue, they are ordered by Priority and scheduledAt time.
 5. The worker function does a call to fluxion `MatchAllocateElseReserve`
  - A reservation is put back into the queue - it will be run again!
@@ -64,11 +77,21 @@ We currently don't elegantly handle the scheduleCycle and bindingCycle call (in 
 Each queue strategy consists of:
 
  - A number of N queues, each of which can have one or more worker types. Each worker type can have a custom function associated.
- - A provisonal queue, again that can be customized to move pods based on the strategy.
+ - A provisional queue, again that can be customized to move pods based on the strategy.
 
-| Strategy | Description |
-|----------|-------------|
-| easy     | backfill with time-ordered priority only considering the first job's reservation (thanks to [@trws](https://github.com/trws) for the description!) |
+| Strategy | Description | Implemented? |
+|----------|-------------|--------------|
+| easy     | backfill with time-ordered priority only considering the first job's reservation (thanks to [@trws](https://github.com/trws) for the description!) | Yes |
+| fcfs     | first come first serve | Not yet |
+
+
+> Easy
+
+The easy strategy is "backfill with time-ordered priority only considering the first job's reservation." This means that one reservation is done per scheduling cycle.
+We will eventually have other strategies that allow for more reservations. This strategy has two queues, and one worker type for each:
+
+- **Default** "workers queue" (is what I call it) is what handles asking fluxion for allocations. This is the main queue.
+- **Cleanup** "cancel queue" is what handles canceling reservations, and when pods are cancelled (to be implemented) it will handle that as well. It's a different queue (and different workers) so the jobs do not collide.
 
 
 ## Notes

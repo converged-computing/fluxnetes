@@ -48,20 +48,20 @@ func (fluxion *Fluxion) InitFluxion(policy, label string) {
 func (fluxion *Fluxion) Cancel(ctx context.Context, in *pb.CancelRequest) (*pb.CancelResponse, error) {
 
 	klog.Infof("[Fluxnetes] received cancel request %v\n", in)
-	err := fluxion.cli.Cancel(int64(in.JobID), true)
+	err := fluxion.cli.Cancel(int64(in.FluxID), true)
 	if err != nil {
 		return nil, err
 	}
 
 	// Why would we have an error code here if we check above?
 	// This (I think) should be an error code for the specific job
-	dr := &pb.CancelResponse{JobID: in.JobID}
+	dr := &pb.CancelResponse{FluxID: in.FluxID}
 	klog.Infof("[Fluxnetes] sending cancel response %v\n", dr)
 	klog.Infof("[Fluxnetes] cancel errors so far: %s\n", fluxion.cli.GetErrMsg())
 
-	reserved, at, overhead, mode, fluxerr := fluxion.cli.Info(int64(in.JobID))
+	reserved, at, overhead, mode, fluxerr := fluxion.cli.Info(int64(in.FluxID))
 	klog.Infof("\n\t----Job Info output---")
-	klog.Infof("jobid: %d\nreserved: %t\nat: %d\noverhead: %f\nmode: %s\nerror: %d\n", in.JobID, reserved, at, overhead, mode, fluxerr)
+	klog.Infof("jobid: %d\nreserved: %t\nat: %d\noverhead: %f\nmode: %s\nerror: %d\n", in.FluxID, reserved, at, overhead, mode, fluxerr)
 
 	klog.Infof("[GRPCServer] Sending Cancel response %v\n", dr)
 	return dr, nil
@@ -122,7 +122,7 @@ func (fluxion *Fluxion) Match(ctx context.Context, in *pb.MatchRequest) (*pb.Mat
 
 	mr := &pb.MatchResponse{
 		Nodelist:   nodelist,
-		JobID:      uint64(jobid),
+		FluxID:     uint64(jobid),
 		Reserved:   reserved,
 		ReservedAt: at,
 		Allocated:  haveAllocation,

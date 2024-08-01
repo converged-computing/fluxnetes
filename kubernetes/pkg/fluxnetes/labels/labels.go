@@ -8,12 +8,11 @@ import (
 
 const (
 	// We use the same label to be consistent
-	// https://github.com/kubernetes-sigs/scheduler-plugins/blob/master/apis/scheduling/v1alpha1/types.go#L109
-	PodGroupLabel     = "scheduling.x-k8s.io/pod-group"
+	PodGroupLabel     = "fluxnetes.group-name"
 	PodGroupSizeLabel = "fluxnetes.group-size"
 
-	// Internal use (not used yet)
-	PodGroupTimeCreated = "fluxnetes.created-at"
+	// How long should the group run, in seconds (before cancel)
+	PodGroupDurationLabel = "fluxnetes.duration"
 )
 
 // GetPodGroupLabel get pod group name from pod labels
