@@ -489,6 +489,11 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					return
 				}
 
+				// TODO: possibly filter to queue name or similar
+				// if event.Queue.Name != river.DefaultQueue {continue}
+				// Note that job states are here:
+				// https://github.com/riverqueue/river/blob/master/riverdriver/riverpgxv5/migration/main/002_initial_schema.up.sql#L1-L9
+
 				// Parse event result into type
 				args := fluxnetes.JobResult{}
 				json.Unmarshal(event.Job.EncodedArgs[:], &args)

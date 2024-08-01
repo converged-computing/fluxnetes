@@ -110,6 +110,8 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	if err != nil {
 		logger.Error(err, "Issue with fluxnetes Schedule")
 	}
+
+	// TODO remove pod from active queue, we have in Fluxernetes provisional queue now
 }
 
 var clearNominatedNode = &framework.NominatingInfo{NominatingMode: framework.ModeOverride, NominatedNodeName: ""}

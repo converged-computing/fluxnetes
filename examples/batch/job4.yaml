@@ -1,14 +1,11 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: job2
+  name: job4
 spec:
   completions: 2
   parallelism: 2
   template:
-    metadata:
-      labels:
-        fluxnetes.group-name: job-2
     spec:
       schedulerName: fluxnetes
       containers:

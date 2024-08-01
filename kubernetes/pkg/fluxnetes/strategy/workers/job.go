@@ -21,6 +21,14 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/resources"
 )
 
+// The job worker submits jobs to fluxion with match allocate
+// or match allocate else reserve, depending on the reservation depth
+func (args JobArgs) Kind() string { return "job" }
+
+type JobWorker struct {
+	river.WorkerDefaults[JobArgs]
+}
+
 type JobArgs struct {
 
 	// Submit Args
@@ -28,6 +36,9 @@ type JobArgs struct {
 	Podspec   string `json:"podspec"`
 	GroupName string `json:"groupName"`
 	GroupSize int32  `json:"groupSize"`
+
+	// If true, we are allowed to ask Fluxion for a reservation
+	Reservation bool `json:"reservation"`
 
 	// Nodes return to Kubernetes to bind, and MUST
 	// have attributes for the Nodes and Podspecs.
@@ -38,13 +49,6 @@ type JobArgs struct {
 	PodId   string `json:"podid"`
 }
 
-// The Kind MUST correspond to the <type>Args and <type>Worker
-func (args JobArgs) Kind() string { return "job" }
-
-type JobWorker struct {
-	river.WorkerDefaults[JobArgs]
-}
-
 // Work performs the AskFlux action. Cases include:
 // Allocated: the job was successful and does not need to be re-queued. We return nil (completed)
 // NotAllocated: the job cannot be allocated and needs to be requeued
@@ -52,7 +56,7 @@ type JobWorker struct {
 // Are there cases of scheduling out into the future further?
 // See https://riverqueue.com/docs/snoozing-jobs
 func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
-	klog.Infof("[WORKER-START] JobStatus Running for group %s", job.Args.GroupName)
+	klog.Infof("[JOB-WORKER-START] JobStatus Running for group %s", job.Args.GroupName)
 
 	// Convert jobspec back to json, and then pod
 	var pod corev1.Pod
@@ -64,6 +68,7 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	// IMPORTANT: this is a JobSpec for *one* pod, assuming they are all the same.
 	// This obviously may not be true if we have a hetereogenous PodGroup.
 	// We name it based on the group, since it will represent the group
+	// TODO(vsoch): generate this from a group of podspecs instead
 	jobspec := resources.PreparePodJobSpec(&pod, job.Args.GroupName)
 	klog.Infof("Prepared pod jobspec %s", jobspec)
 
@@ -88,7 +93,7 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	// user when we expose some kubectl tool.
 	request := &pb.MatchRequest{
 		Podspec: jobspec,
-		Reserve: true,
+		Reserve: job.Args.Reservation,
 		Count:   job.Args.GroupSize,
 		JobName: job.Args.GroupName,
 	}
@@ -99,6 +104,24 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	if err != nil {
 		klog.Error("[Fluxnetes] AskFlux did not receive any match response", err)
 		return err
+	}
+
+	// Convert the response into an error code that indicates if we should run again.
+	// We must update the database with nodes from here with a query
+	// This will be sent back to the Kubernetes scheduler
+	// TODO(vsoch): should this be error (which will retry) or cancel (not)?
+	pool, err := pgxpool.New(fluxionCtx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+
+	// If it's reserved, we need to add the id to our reservation table
+	if response.Reserved {
+		rRows, err := pool.Query(fluxionCtx, queries.AddReservationQuery, job.Args.GroupName, response.GetFluxID())
+		if err != nil {
+			return err
+		}
+		defer rRows.Close()
 	}
 
 	// This means we didn't get an allocation - we might have a reservation (to do
@@ -112,11 +135,6 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	klog.Infof("Fluxion response with allocation is %s", response)
 
-	// These don't actually update, eventually we can update them also in the database update
-	// We update the "Args" of the job to pass the node assignment back to the scheduler
-	// job.Args.PodId = response.GetPodID()
-	// job.Args.FluxJob = response.GetJobID()
-
 	// Get the nodelist and serialize into list of strings for job args
 	nodelist := response.GetNodelist()
 	nodes := []string{}
@@ -125,27 +143,16 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	nodeStr := strings.Join(nodes, ",")
 
-	// Convert the response into an error code that indicates if we should run again.
-	// We must update the database with nodes from here with a query
-	// This will be sent back to the Kubernetes scheduler
-	// TODO(vsoch): should this be error (which will retry) or cancel (not)?
-	pool, err := pgxpool.New(fluxionCtx, os.Getenv("DATABASE_URL"))
-	if err != nil {
-		return err
-	}
 	rows, err := pool.Query(fluxionCtx, queries.UpdateNodesQuery, nodeStr, job.ID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	// TODO why aren't events being all sent sometimes?
-	// try putting subscription elsewhere?
-
 	// Collect rows into single result
 	// pgx.CollectRows(rows, pgx.RowTo[string])
 	// klog.Infof("Values: %s", values)
-	klog.Infof("[WORKER-COMPLETE] nodes allocated %s for group %s (flux job id %d)\n",
+	klog.Infof("[JOB-WORKER-COMPLETE] nodes allocated %s for group %s (flux job id %d)\n",
 		nodeStr, job.Args.GroupName, job.Args.FluxJob)
 	return nil
 }

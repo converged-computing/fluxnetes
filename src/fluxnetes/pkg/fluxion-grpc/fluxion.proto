@@ -38,7 +38,7 @@ message NodeAlloc {
 
 // The Match response message
 message MatchResponse {
-    uint64 jobID = 1;
+    uint64 fluxID = 1;
     repeated NodeAlloc nodelist = 2;
     bool reserved = 3;
     int64 reserved_at = 4;
@@ -49,12 +49,12 @@ message MatchResponse {
 }
 
 message CancelRequest {
-    int64 jobID = 2;
+    uint64 fluxID = 1;
 }
 
 // The Match response message
 message CancelResponse {
-    int64 jobID = 1;
+    uint64 fluxID = 1;
     int32 error = 2;
 }
 
