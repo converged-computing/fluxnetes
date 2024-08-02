@@ -149,6 +149,12 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	defer rows.Close()
 
+	// Kick off a cleaning job for when everyting should be cancelled
+	//	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
+	//	if err != nil {
+	//		return fmt.Errorf("error getting client from context: %w", err)
+	//	}
+
 	// Collect rows into single result
 	// pgx.CollectRows(rows, pgx.RowTo[string])
 	// klog.Infof("Values: %s", values)
@@ -156,9 +162,3 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		nodeStr, job.Args.GroupName, job.Args.FluxJob)
 	return nil
 }
-
-// If needed, to get a client from a worker (to submit more jobs)
-// client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
-// if err != nil {
-//	return fmt.Errorf("error getting client from context: %w", err)
-// }

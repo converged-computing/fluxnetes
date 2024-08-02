@@ -13,12 +13,17 @@ const (
 	DeleteReservationsQuery = "truncate reservations; delete from reservations;"
 	GetReservationsQuery    = "select (group_name, flux_id) from reservations;"
 
-	// This could use improvement from someone good at SQL. We need to:
+	// This query should achieve the following (but does not work)
 	// 1. Select groups for which the size >= the number of pods we've seen
 	// 2. Then get the group_name, group_size, and podspec for each (this goes to scheduler)
-	// 3. Delete all from the table
-	// Ensure we are sorting by the timestamp when they were added (should be DESC I think)
+	// Ensures we are sorting by the timestamp when they were added (should be DESC I think)
+	RefreshGroupsQuery     = "refresh materialized view groups_size;"
+	SelectGroupsReadyQuery = "select * from pods_provisional join groups_size on pods_provisional.group_name = groups_size.group_name where  group_size >= count order by created_at desc;"
+
+	// 3. Then delete all from the table
+	DeleteGroupsQuery = "delete from pods_provisional where group_name in ('%s');"
+
+	// Note that is used to be done with two queries - these are no longer used
 	SelectGroupsAtSizeQuery = "select group_name from pods_provisional group by group_name, group_size, created_at having group_size >= count(*) order by created_at desc;"
 	SelectGroupsQuery       = "select group_name, group_size, podspec from pods_provisional where group_name in ('%s');"
-	DeleteGroupsQuery       = "delete from pods_provisional where group_name in ('%s');"
 )
