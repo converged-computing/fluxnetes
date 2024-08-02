@@ -34,9 +34,8 @@ RUN go get github.com/patrickmn/go-cache && \
     make WHAT=cmd/kube-scheduler && \
     cp /go/src/k8s.io/kubernetes/_output/local/go/bin/kube-scheduler /bin/kube-scheduler
 
-# Commented out - was caching. We can uncomment when there is a more solid build
 # https://kubernetes.io/docs/tasks/extend-kubernetes/configure-multiple-schedulers/
-# FROM busybox
-# COPY --from=base /go/src/k8s.io/kubernetes/_output/local/go/bin/kube-scheduler /bin/kube-scheduler
+FROM busybox
+COPY --from=base /go/src/k8s.io/kubernetes/_output/local/go/bin/kube-scheduler /bin/kube-scheduler
 WORKDIR /bin
 CMD ["kube-scheduler"]

@@ -1,4 +1,4 @@
-FROM fluxrm/flux-sched:jammy
+FROM fluxrm/flux-sched:jammy AS builder
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
@@ -29,5 +29,10 @@ COPY fluxnetes Makefile /go/src/fluxnetes/
 RUN go mod tidy && \
     go mod vendor && \
     make server FLUX_SCHED_ROOT=/opt/flux-sched && \
-    mkdir -p /home/data/jobspecs /home/data/jgf && \
-    chmod -R ugo+rwx /home/data
+    mkdir -p /home/data/jobspecs /home/data/jgf && chmod -R ugo+rwx /home/data && \
+    cp /go/src/fluxnetes/bin/server /bin/fluxion-service
+
+# TODO minimize build, can we copy over libraries?
+# FROM ubuntu:jammy
+# COPY --from=builder /opt/flux-sched /opt/flux-sched
+# COPY --from=builder /go/src/fluxnetes/bin/server /bin/fluxion-service

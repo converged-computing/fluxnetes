@@ -6,55 +6,47 @@
 
 set -eEu -o pipefail
 
-# ensure upstream exists
-# This test script assumes fluence image and sidecar are already built
-make prepare
-
 # Keep track of root directory to return to
 here=$(pwd)
 
-# Never will use our loaded (just built) images
-cd upstream/manifests/install/charts
+REGISTRY=ghcr.io/converged-computing
+
+# And then install using the charts. The pull policy ensures we use the loaded ones
 helm install \
-  --set scheduler.image=ghcr.io/flux-framework/fluence:latest \
-  --set scheduler.sidecarimage=ghcr.io/flux-framework/fluence-sidecar:latest \
-  --set controller.image=ghcr.io/flux-framework/fluence-controller:latest \
-  --set controller.pullPolicy=Never \
+  --set postgres.image=${REGISTRY}/fluxnetes-postgres:latest \
+  --set scheduler.image=${REGISTRY}/fluxnetes:latest \
+  --set sidecar.image=${REGISTRY}/fluxnetes-sidecar:latest \
+  --set postgres.pullPolicy=Never \
   --set scheduler.pullPolicy=Never \
-  --set scheduler.sidecarPullPolicy=Never \
-    schedscheduler-plugins as-a-second-scheduler/
+  --set sidecar.pullPolicy=Never \
+        fluxnetes chart/
 
 # These containers should already be loaded into minikube
-echo "Sleeping 10 seconds waiting for scheduler deploy"
-sleep 10
+echo "Sleeping 1 minute waiting for scheduler deploy"
+sleep 60
 kubectl get pods
 
 # This will get the fluence image (which has scheduler and sidecar), which should be first
-fluence_pod=$(kubectl get pods -o json | jq -r .items[0].metadata.name)
-echo "Found fluence pod ${fluence_pod}"
+fluxnetes_pod=$(kubectl get pods -o json | jq -r .items[0].metadata.name)
+echo "Found fluxnetes pod ${fluxnetes_pod}"
 
 # Show logs for debugging, if needed
 echo
-echo "⭐️ kubectl logs ${fluence_pod} -c sidecar"
-kubectl logs ${fluence_pod} -c sidecar
+echo "⭐️ kubectl logs ${fluxnetes_pod} -c sidecar"
+kubectl logs ${fluxnetes_pod} -c sidecar
 echo
-echo "⭐️ kubectl logs ${fluence_pod} -c scheduler-plugins-scheduler"
-kubectl logs ${fluence_pod} -c scheduler-plugins-scheduler
+echo "⭐️ kubectl logs ${fluxnetes_pod} -c scheduler"
+kubectl logs ${fluxnetes_pod} -c scheduler
 
 # We now want to apply the examples
-cd ${here}/examples/test_example
-
-# Apply both example jobs
-kubectl apply -f fluence-job.yaml
-kubectl apply -f default-job.yaml
+kubectl apply -f ./examples/job.yaml
 
 # Get them based on associated job
-fluence_job_pod=$(kubectl get pods --selector=job-name=fluence-job -o json | jq -r .items[0].metadata.name)
-default_job_pod=$(kubectl get pods --selector=job-name=default-job -o json | jq -r .items[0].metadata.name)
+fluxnetes_job_pod=$(kubectl get pods --selector=job-name=job -o json | jq -r .items[0].metadata.name)
+fluxnetes_scheduler=$(kubectl get pods --selector=job-name=job -o json | jq -r .items[0].spec.schedulerName)
 
 echo
-echo "Fluence job pod is ${fluence_job_pod}"
-echo "Default job pod is ${default_job_pod}"
+echo "Fluxnetes job pod is ${fluxnetes_job_pod}"
 sleep 10
 
 # Shared function to check output
@@ -70,30 +62,17 @@ function check_output {
 }
 
 # Get output (and show)
-default_output=$(kubectl logs ${default_job_pod})
-default_scheduled_by=$(kubectl get pod ${default_job_pod} -o json | jq -r .spec.schedulerName)
-echo
-echo "Default scheduler pod output: ${default_output}"
-echo "                Scheduled by: ${default_scheduled_by}"
+fluxnetes_output=$(kubectl logs ${fluxnetes_job_pod})
 
-fluence_output=$(kubectl logs ${fluence_job_pod})
-fluence_scheduled_by=$(kubectl get pod ${fluence_job_pod} -o json | jq -r .spec.schedulerName)
 echo
-echo "Fluence scheduler pod output: ${fluence_output}"
-echo "                Scheduled by: ${fluence_scheduled_by}"
+echo "Job pod output: ${fluxnetes_output}"
+echo "                Scheduled by: ${fluxnetes_scheduler}"
 
 # Check output explicitly
-check_output 'check-fluence-output' "${fluence_output}" "potato"
-check_output 'check-default-output' "${default_output}" "not potato"
-check_output 'check-default-scheduled-by' "${default_scheduled_by}" "default-scheduler"
-check_output 'check-fluence-scheduled-by' "${fluence_scheduled_by}" "fluence"
+check_output 'check-fluxnetes-output' "${fluxnetes_output}" "potato"
+check_output 'check-scheduled-by' "${fluxnetes_scheduler}" "fluxnetes"
 
 # But events tell us actually what happened, let's parse throught them and find our pods
 # This tells us the Event -> reason "Scheduled" and who it was reported by.
-reported_by=$(kubectl events --for pod/${fluence_job_pod} -o json  | jq -c '[ .items[] | select( .reason | contains("Scheduled")) ]' | jq -r .[0].reportingComponent)
-check_output 'reported-by-fluence' "${reported_by}" "fluence"
-
-# And the second should be the default scheduler, but reportingComponent is empty and we see the
-# result in the source -> component
-reported_by=$(kubectl events --for pod/${default_job_pod} -o json  | jq -c '[ .items[] | select( .reason | contains("Scheduled")) ]' | jq -r .[0].source.component)
-check_output 'reported-by-default' "${reported_by}" "default-scheduler"
+reported_by=$(kubectl events --for pod/${fluxnetes_job_pod} -o json  | jq -c '[ .items[] | select( .reason | contains("Scheduled")) ]' | jq -r .[0].reportingComponent)
+check_output 'reported-by-fluxnetes' "${reported_by}" "fluxnetes"
