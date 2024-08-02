@@ -54,7 +54,7 @@ spec:
       - image: {{ .Values.sidecar.image }}
         imagePullPolicy: {{ .Values.sidecar.pullPolicy }}
         command:
-        - /go/src/fluxnetes/bin/server
+        - /bin/fluxion-service
         - --policy={{ .Values.sidecar.policy }}
         - --port={{ .Values.sidecar.port }}
         {{ if .Values.scheduler.enableExternalService }}- --external-service{{ end }}

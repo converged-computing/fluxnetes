@@ -176,8 +176,7 @@ SELECT group_name, group_size from pods_provisional;
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
 - [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
-- [ ] when in basic working state, add back build and test workflows
-  - need to test duration / completion time works (run job with short duration, should be cancelled/cleaned up)
+- [ ] need to test duration / completion time works (run job with short duration, should be cancelled/cleaned up)
   - spam submission and test reservations (and cancel)
 - [ ] implement other queue strategies (fcfs and backfill with > 1 reservation depth)
   - fcfs can work by only adding one job (first in provisional) to the worker queue at once, only when it's empty! lol.

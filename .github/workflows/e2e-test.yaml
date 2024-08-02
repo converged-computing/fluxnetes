@@ -1,0 +1,228 @@
+name: fluexnetes test
+
+on:
+  pull_request: []
+  # Test on demand (dispatch) or once a week, sunday
+  # We combine the builds into one job to simplify not needing to share
+  # containers between jobs. We also don't want to push unless the tests pass.
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  build-fluxnetes:
+    permissions:
+      packages: write
+    env:
+      container: ghcr.io/converged-computing/fluxnetes
+    runs-on: ubuntu-latest
+    name: build fluxnetes
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21.9
+
+    - name: Build Containers
+      run: |
+        make prepare
+        make build REGISTRY=ghcr.io/converged-computing SCHEDULER_IMAGE=fluxnetes
+
+    - name: Save Containers
+      run: docker save ${{ env.container }} | gzip > fluxnetes_latest.tar.gz
+
+    - name: Upload container artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: fluxnetes
+        path: fluxnetes_latest.tar.gz
+
+  build-sidecar:
+    permissions:
+      packages: write
+    env:
+      container: ghcr.io/converged-computing/fluxnetes-sidecar
+    runs-on: ubuntu-latest
+    name: build sidecar
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21.9
+
+    - name: Build Containers
+      run: |
+        make prepare
+        make build-sidecar REGISTRY=ghcr.io/converged-computing SIDECAR_IMAGE=fluxnetes-sidecar
+
+    - name: Save Containers
+      run: docker save ${{ env.container }} | gzip > fluxnetes_sidecar_latest.tar.gz
+
+    - name: Upload container artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: fluxnetes-sidecar
+        path: fluxnetes_sidecar_latest.tar.gz
+
+  build-postgres:
+    permissions:
+      packages: write
+    env:
+      container: ghcr.io/converged-computing/fluxnetes-postgres
+    runs-on: ubuntu-latest
+    name: build postgres
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21.9
+
+    - name: Build Container
+      run: |
+        make prepare
+        make build-postgres REGISTRY=ghcr.io/converged-computing 
+
+    - name: Save Containers
+      run: docker save ${{ env.container }} | gzip > fluxnetes_postgres_latest.tar.gz
+
+    - name: Upload container artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: fluxnetes-postgres
+        path: fluxnetes_postgres_latest.tar.gz
+
+  test-fluxnetes:
+    needs: [build-fluxnetes, build-sidecar, build-postgres]
+    permissions:
+      packages: write
+    env:
+      fluxnetes_container: ghcr.io/converged-computing/fluxnetes
+      sidecar_container: ghcr.io/converged-computing/fluxnetes-sidecar
+      postgres_container: ghcr.io/converged-computing/fluxnetes-postgres
+
+    runs-on: ubuntu-latest
+    name: test fluxnetes
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21
+
+    - name: Download fluxnetes artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: fluxnetes
+        path: /tmp
+
+    - name: Download fluxnetes_sidecar artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: fluxnetes-sidecar
+        path: /tmp
+
+    - name: Download fluxnetes_postgres artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: fluxnetes-postgres
+        path: /tmp
+
+    - name: Make Space For Build
+      run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo apt-get remove -y firefox || true
+          sudo apt-get remove -y google-chrome-stable || true
+          sudo apt purge openjdk-* || echo "OpenJDK is not installed"
+          sudo apt remove --autoremove openjdk-*  || echo "OpenJDK is not installed"
+          sudo apt purge oracle-java* || echo "Oracle Java is not installed"
+          sudo apt remove --autoremove adoptopenjdk-* || echo "Adopt open JDK is not installed"
+          sudo apt-get remove -y ant || echo "ant is not installed"
+          sudo rm -rf /opt/hostedtoolcache/Java_Adopt_jdk || true
+          sudo apt-get remove -y podman || echo "Podman is not installed"
+          sudo apt-get remove -y buildah || echo "Buidah is not installed"
+          sudo apt-get remove -y esl-erlang || echo "erlang is not installed"
+          sudo rm -rf /opt/google
+          sudo rm -rf /usr/share/az* /opt/az || true
+          sudo rm -rf /opt/microsoft
+          sudo rm -rf /opt/hostedtoolcache/Ruby
+          sudo apt-get remove -y swift || echo "swift is not installed"
+          sudo apt-get remove -y swig || echo "swig is not installed"
+          sudo apt-get remove -y texinfo || echo "texinfo is not installed"
+          sudo apt-get remove -y texlive || echo "texlive is not installed"
+          sudo apt-get remove -y r-base-core r-base || echo "R is not installed"
+          sudo rm -rf /opt/R
+          sudo rm -rf /usr/share/R
+          sudo rm -rf /opt/*.zip
+          sudo rm -rf /opt/*.tar.gz
+          sudo rm -rf /usr/share/*.zip
+          sudo rm -rf /usr/share/*.tar.gz
+          sudo rm -rf /opt/hhvm
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /opt/hostedtoolcache/node
+          sudo apt-get autoremove
+          
+    - name: Load Docker images
+      run: |
+        ls /tmp/*.tar.gz
+        docker load --input /tmp/fluxnetes_sidecar_latest.tar.gz
+        rm /tmp/fluxnetes_sidecar_latest.tar.gz
+        docker load --input /tmp/fluxnetes_latest.tar.gz
+        rm /tmp/fluxnetes_latest.tar.gz
+        docker load --input /tmp/fluxnetes_postgres_latest.tar.gz
+        rm /tmp/fluxnetes_postgres_latest.tar.gz
+        docker image ls -a | grep fluxnetes
+
+    - name: Create Kind Cluster
+      uses: helm/kind-action@v1.5.0
+      with:
+        cluster_name: kind
+        kubectl_version: v1.28.2
+        version: v0.20.0
+        config: ./.github/test-kind-config.yaml
+        
+    - name: Load Docker Containers into Kind
+      env:
+        fluxnetes: ${{ env.fluxnetes_container }}
+        sidecar: ${{ env.sidecar_container }}
+        postgres: ${{ env.postgres_container }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        kind load docker-image ${fluxnetes}
+        kind load docker-image ${sidecar}
+        kind load docker-image ${postgres}
+
+    - name: Install Cert Manager
+      run: |
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.1/cert-manager.yaml
+        sleep 15
+
+    - name: Test Fluxnetes
+      run: /bin/bash ./.github/test.sh
+
+    - name: Tag Weekly Images
+      run: |
+        # YEAR-MONTH-DAY or #YYYY-MM-DD
+        tag=$(echo $(date +%Y-%m-%d))
+        echo "Tagging and releasing ${{ env.fluxnetes_container}}:${tag}"        
+        docker tag ${{ env.fluxnetes_container }}:latest ${{ env.fluxnetes_container }}:${tag}
+        echo "Tagging and releasing ${{ env.sidecar_container}}:${tag}"        
+        docker tag ${{ env.sidecar_container }}:latest ${{ env.sidecar_container }}:${tag}
+        echo "Tagging and releasing ${{ env.postgres_container}}:${tag}"        
+        docker tag ${{ env.postgres_container }}:latest ${{ env.postgres_container }}:${tag}
+
+     # If we get here, tests pass, and we can deploy
+    - name: GHCR Login
+      if: (github.event_name != 'pull_request')
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Deploy Containers
+      if: (github.event_name != 'pull_request')
+      run: |
+        docker push ${{ env.fluxnetes_container }} --all-tags
+        docker push ${{ env.sidecar_container }} --all-tags
+        docker push ${{ env.postgres_container }} --all-tags
