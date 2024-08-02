@@ -115,9 +115,12 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		return err
 	}
 
+	// Flux job identifier (known to fluxion)
+	fluxID := response.GetFluxID()
+
 	// If it's reserved, we need to add the id to our reservation table
 	if response.Reserved {
-		rRows, err := pool.Query(fluxionCtx, queries.AddReservationQuery, job.Args.GroupName, response.GetFluxID())
+		rRows, err := pool.Query(fluxionCtx, queries.AddReservationQuery, job.Args.GroupName, fluxID)
 		if err != nil {
 			return err
 		}
@@ -150,10 +153,11 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	defer rows.Close()
 
 	// Kick off a cleaning job for when everyting should be cancelled
-	//	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
-	//	if err != nil {
-	//		return fmt.Errorf("error getting client from context: %w", err)
-	//	}
+	// pretend duration is 10 seconds for now
+	err = SubmitCleanup(ctx, pool, 10, fluxID, true, []string{})
+	if err != nil {
+		return err
+	}
 
 	// Collect rows into single result
 	// pgx.CollectRows(rows, pgx.RowTo[string])
