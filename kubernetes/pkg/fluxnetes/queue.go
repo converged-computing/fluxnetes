@@ -93,6 +93,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	}
 
 	// Validates reservation depth
+	// TODO(vsoch) allow -1 to disable
 	depth := strategy.GetReservationDepth()
 	if depth < 0 {
 		return nil, fmt.Errorf("Reservation depth of a strategy must be >= -1")

@@ -1,0 +1,121 @@
+name: fluxnetes build-and deploy
+
+on:
+  pull_request: []
+  release:
+    types: [published]
+  push:
+    branches:
+    - main
+
+jobs:
+  build-fluxnetes:
+    permissions:
+      packages: write
+    env:
+      container: ghcr.io/converged-computing/fluxnetes
+    runs-on: ubuntu-latest
+    name: build fluxnetes
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21.9
+
+    - name: Build Containers
+      run: |
+        make prepare
+        make build REGISTRY=ghcr.io/converged-computing SCHEDULER_IMAGE=fluxnetes
+
+    - name: Tag Release Image
+      if: (github.event_name == 'release')
+      run: |
+        tag=${GITHUB_REF#refs/tags/}
+        echo "Tagging and releasing ${{ env.container}}:${tag}"        
+        docker tag ${{ env.container }}:latest ${{ env.container }}:${tag}
+
+    - name: GHCR Login
+      if: (github.event_name != 'pull_request')
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Deploy Container
+      if: (github.event_name != 'pull_request')
+      run: docker push ${{ env.container }} --all-tags
+
+  build-sidecar:
+    permissions:
+      packages: write
+    env:
+      container: ghcr.io/converged-computing/fluxnetes-sidecar
+    runs-on: ubuntu-latest
+    name: build sidecar
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21.9
+
+    - name: Build Containers
+      run: |
+        make prepare
+        make build-sidecar REGISTRY=ghcr.io/converged-computing SIDECAR_IMAGE=fluxnetes-sidecar
+
+    - name: Tag Release Image
+      if: (github.event_name == 'release')
+      run: |
+        tag=${GITHUB_REF#refs/tags/}
+        echo "Tagging and releasing ${{ env.container}}:${tag}"        
+        docker tag ${{ env.container }}:latest ${{ env.container }}:${tag}
+
+    - name: GHCR Login
+      if: (github.event_name != 'pull_request')
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Deploy Container
+      if: (github.event_name != 'pull_request')
+      run: docker push ${{ env.container }} --all-tags
+
+  build-postgres:
+    permissions:
+      packages: write
+    env:
+      container: ghcr.io/converged-computing/fluxnetes-postgres
+    runs-on: ubuntu-latest
+    name: build postgres
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21.9
+
+    - name: Build Container
+      run: |
+        make prepare
+        make build-postgres REGISTRY=ghcr.io/converged-computing 
+
+    - name: Tag Release Image
+      if: (github.event_name == 'release')
+      run: |
+        tag=${GITHUB_REF#refs/tags/}
+        echo "Tagging and releasing ${{ env.container }}:${tag}"
+        docker tag ${{ env.container }}:latest ${{ env.container }}:${tag}
+
+    - name: GHCR Login
+      if: (github.event_name != 'pull_request')
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Deploy Container
+      if: (github.event_name != 'pull_request')
+      run: docker push ${{ env.container }} --all-tags

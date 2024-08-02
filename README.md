@@ -173,7 +173,6 @@ SELECT group_name, group_size from pods_provisional;
 ### TODO
 
 - [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
- - Note that I've added a view I think will help with this - we need to regenerate it and do a join!
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
 - [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
@@ -185,6 +184,7 @@ SELECT group_name, group_size from pods_provisional;
 - [ ] create state diagram that shows how stuff works
 - [ ] When a job is allocated, we likely need to submit a cancel job that will ensure it can be cancelled when the time runs out
   - add the label for the job timeout, default to one hour
+  - note clear how to orchestrate this if we need parent object
 
 Thinking:
 

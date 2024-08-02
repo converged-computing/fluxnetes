@@ -26,12 +26,7 @@ type CleanupWorker struct {
 	river.WorkerDefaults[CleanupArgs]
 }
 
-// Work performs the AskFlux action. Cases include:
-// Allocated: the job was successful and does not need to be re-queued. We return nil (completed)
-// NotAllocated: the job cannot be allocated and needs to be requeued
-// Not possible for some reason, likely needs a cancel
-// Are there cases of scheduling out into the future further?
-// See https://riverqueue.com/docs/snoozing-jobs
+// Work performs the Cancel action
 func (w CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) error {
 	klog.Infof("[CLEANUP-WORKER-START] Cleanup (cancel) running for jobid %s", job.Args.FluxID)
 

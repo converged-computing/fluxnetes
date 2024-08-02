@@ -133,6 +133,46 @@ func (q *ProvisionalQueue) getGroupsAtSize(ctx context.Context, pool *pgxpool.Po
 	return jobs, nil
 }
 
+// This was an attmpt to combine into one query (does not work, still two!)
+func (q *ProvisionalQueue) getGroupsReady(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, []string, error) {
+
+	groupNames := []string{}
+
+	// Refresh groups table
+	_, err := pool.Query(ctx, queries.RefreshGroupsQuery)
+	if err != nil {
+		return nil, groupNames, err
+	}
+
+	// Now we need to collect all the pods that match that.
+	rows, err := pool.Query(ctx, queries.SelectGroupsReadyQuery)
+	if err != nil {
+		return nil, groupNames, err
+	}
+	defer rows.Close()
+
+	// Collect rows into map, and then slice of jobs
+	// The map whittles down the groups into single entries
+	// We will eventually not want to do that, assuming podspecs are different in a group
+	jobs := []workers.JobArgs{}
+	lookup := map[string]workers.JobArgs{}
+
+	// Collect rows into single result
+	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[JobModel])
+
+	// TODO(vsoch) we need to collect all podspecs here and be able to give that to the worker
+	for _, model := range models {
+		jobArgs := workers.JobArgs{GroupName: model.GroupName, Podspec: model.Podspec, GroupSize: model.GroupSize}
+		lookup[model.GroupName] = jobArgs
+	}
+
+	for _, jobArgs := range lookup {
+		jobs = append(jobs, jobArgs)
+		groupNames = append(groupNames, jobArgs.GroupName)
+	}
+	return jobs, groupNames, nil
+}
+
 // ReadyJobs returns jobs that are ready from the provisional table, also cleaning up
 func (q *ProvisionalQueue) ReadyJobs(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, error) {
 
