@@ -28,11 +28,22 @@ COPY fluxnetes Makefile /go/src/fluxnetes/
 
 RUN go mod tidy && \
     go mod vendor && \
-    make server FLUX_SCHED_ROOT=/opt/flux-sched && \
-    mkdir -p /home/data/jobspecs /home/data/jgf && chmod -R ugo+rwx /home/data && \
-    cp /go/src/fluxnetes/bin/server /bin/fluxion-service
+    make server FLUX_SCHED_ROOT=/opt/flux-sched
 
-# TODO minimize build, can we copy over libraries?
-# FROM ubuntu:jammy
-# COPY --from=builder /opt/flux-sched /opt/flux-sched
-# COPY --from=builder /go/src/fluxnetes/bin/server /bin/fluxion-service
+# minimize build! 
+FROM ubuntu:jammy
+COPY --from=builder /go/src/fluxnetes/bin/server /bin/fluxion-service
+COPY --from=builder /usr/lib/flux/ /usr/lib/flux
+COPY --from=builder /usr/lib/libflux* /usr/lib/
+
+RUN apt-get update && apt-get -qq install -y --no-install-recommends \
+	libboost-graph-dev \
+	libboost-system-dev \
+	libboost-filesystem-dev \
+	libboost-regex-dev \
+	libyaml-cpp-dev \
+    libjansson-dev \
+    hwloc && \
+    apt-get clean && \
+      mkdir -p /home/data/jobspecs /home/data/jgf && chmod -R ugo+rwx /home/data
+ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:/usr/lib/flux

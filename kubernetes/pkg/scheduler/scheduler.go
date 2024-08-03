@@ -489,14 +489,24 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					return
 				}
 
+				// This ensures we don't parse anything for the cleanup queue
+				// The function is added (to work on next) but not yet implemented how
+				// that is going to work
+				klog.Infof("Job Event Received: %s", event.Job.Kind)
+				if event.Job.Kind == "cleanup" {
+					continue
+				}
 				// TODO: possibly filter to queue name or similar
-				// if event.Queue.Name != river.DefaultQueue {continue}
-				// Note that job states are here:
 				// https://github.com/riverqueue/river/blob/master/riverdriver/riverpgxv5/migration/main/002_initial_schema.up.sql#L1-L9
 
 				// Parse event result into type
 				args := fluxnetes.JobResult{}
-				json.Unmarshal(event.Job.EncodedArgs[:], &args)
+
+				// We only care about job results to further process (not cleanup)
+				err = json.Unmarshal(event.Job.EncodedArgs[:], &args)
+				if err != nil {
+					continue
+				}
 				nodes := args.GetNodes()
 
 				if len(nodes) > 0 {

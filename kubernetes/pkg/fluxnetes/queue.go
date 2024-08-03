@@ -205,7 +205,8 @@ func (q *Queue) GetCreationTimestamp(pod *corev1.Pod, groupName string) (metav1.
 	ts := metav1.MicroTime{}
 
 	// This query will fail if there are no rows (the podGroup is not known)
-	err := q.Pool.QueryRow(context.Background(), queries.GetTimestampQuery, groupName).Scan(&ts)
+	row := q.Pool.QueryRow(context.Background(), queries.GetTimestampQuery, groupName)
+	err := row.Scan(&ts)
 	if err == nil {
 		klog.Info("Creation timestamp is", ts)
 		return ts, err

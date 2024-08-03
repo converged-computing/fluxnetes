@@ -176,19 +176,21 @@ SELECT group_name, group_size from pods_provisional;
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
 - [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
-- [ ] need to test duration / completion time works (run job with short duration, should be cancelled/cleaned up)
-  - spam submission and test reservations (and cancel)
+- Testing:
+  - [ ] need to test duration / completion time works (run job with short duration, should be cancelled/cleaned up)
+  - [ ] spam submission and test reservations (and cancel)
 - [ ] implement other queue strategies (fcfs and backfill with > 1 reservation depth)
   - fcfs can work by only adding one job (first in provisional) to the worker queue at once, only when it's empty! lol.
 - [ ] create state diagram that shows how stuff works
 - [ ] When a job is allocated, we likely need to submit a cancel job that will ensure it can be cancelled when the time runs out
-  - add the label for the job timeout, default to one hour
-  - note clear how to orchestrate this if we need parent object
+  - [x] add the label for the job timeout, default to one hour
+  - [x] cleanup job is triggered after duration
+  - [ ] issue cancel to fluxion and delete pods up to parent (how to do this)? 
+- [ ] When a job is not able to schedule, it should go into a rejected queue, which should finish and return a NOT SCHEDULABLE status.
 
 Thinking:
 
 - We can allow trying to schedule jobs in the future, although I'm not sure about that use case (add label to do this)
-- When a job is not able to schedule, it should go into a rejected queue, which should finish and return a NOT SCHEDULABLE status.
 
 ## License
 

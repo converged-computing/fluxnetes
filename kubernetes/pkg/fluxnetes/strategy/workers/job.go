@@ -36,6 +36,7 @@ type JobArgs struct {
 	Podspec   string `json:"podspec"`
 	GroupName string `json:"groupName"`
 	GroupSize int32  `json:"groupSize"`
+	Duration  int32  `json:"duration"`
 
 	// If true, we are allowed to ask Fluxion for a reservation
 	Reservation bool `json:"reservation"`
@@ -153,8 +154,7 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	defer rows.Close()
 
 	// Kick off a cleaning job for when everyting should be cancelled
-	// pretend duration is 10 seconds for now
-	err = SubmitCleanup(ctx, pool, 10, fluxID, true, []string{})
+	err = SubmitCleanup(ctx, pool, job.Args.Duration, int64(fluxID), true, []string{})
 	if err != nil {
 		return err
 	}

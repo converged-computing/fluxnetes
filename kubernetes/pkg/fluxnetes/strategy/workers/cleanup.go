@@ -44,6 +44,8 @@ func SubmitCleanup(
 	tags []string,
 ) error {
 
+	klog.Infof("SUBMIT CLEANUP starting for %d", fluxID)
+
 	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
 	if err != nil {
 		return fmt.Errorf("error getting client from context: %w", err)
@@ -61,16 +63,17 @@ func SubmitCleanup(
 	insertOpts := river.InsertOpts{
 		MaxAttempts: defaults.MaxAttempts,
 		Tags:        tags,
-		Queue:       "cleanup_queue",
+		Queue:       "cancel_queue",
 		ScheduledAt: scheduledAt,
 	}
-	_, err = client.InsertTx(ctx, tx, CleanupArgs{FluxID: fluxID, Kubernetes: inKubernetes}, insertOpts)
+	_, err = client.InsertTx(ctx, tx, CleanupArgs{FluxID: fluxID, Kubernetes: inKubernetes}, &insertOpts)
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	klog.Infof("SUBMIT CLEANUP ending for %d", fluxID)
 	return nil
 }
 
