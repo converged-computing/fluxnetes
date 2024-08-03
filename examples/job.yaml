@@ -7,6 +7,7 @@ spec:
     metadata:
       labels:
         fluxnetes.group-name: job
+        fluxnetes.duration: "5"
     spec:
       schedulerName: fluxnetes
       containers:

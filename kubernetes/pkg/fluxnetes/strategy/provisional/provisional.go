@@ -23,6 +23,7 @@ type JobModel struct {
 	GroupName string `db:"group_name"`
 	GroupSize int32  `db:"group_size"`
 	Podspec   string `db:"podspec"`
+	Duration  int32  `db:"duration"`
 	// CreatedAt time.Time `db:"created_at"`
 }
 
@@ -63,7 +64,8 @@ func (q *ProvisionalQueue) Enqueue(
 		if err != nil {
 			return err
 		}
-		_, err = q.pool.Query(ctx, queries.InsertPodQuery, string(podspec), pod.Namespace, pod.Name, ts, group.Name, group.Size)
+		_, err = q.pool.Query(ctx, queries.InsertPodQuery, string(podspec), pod.Namespace,
+			pod.Name, group.Duration, ts, group.Name, group.Size)
 
 		// Show the user a success or an error, we return it either way
 		if err != nil {
@@ -124,7 +126,12 @@ func (q *ProvisionalQueue) getGroupsAtSize(ctx context.Context, pool *pgxpool.Po
 
 	// TODO(vsoch) we need to collect all podspecs here and be able to give that to the worker
 	for _, model := range models {
-		jobArgs := workers.JobArgs{GroupName: model.GroupName, Podspec: model.Podspec, GroupSize: model.GroupSize}
+		jobArgs := workers.JobArgs{
+			GroupName: model.GroupName,
+			Podspec:   model.Podspec,
+			GroupSize: model.GroupSize,
+			Duration:  model.Duration,
+		}
 		lookup[model.GroupName] = jobArgs
 	}
 	for _, jobArgs := range lookup {

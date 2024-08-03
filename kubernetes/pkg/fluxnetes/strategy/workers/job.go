@@ -36,6 +36,7 @@ type JobArgs struct {
 	Podspec   string `json:"podspec"`
 	GroupName string `json:"groupName"`
 	GroupSize int32  `json:"groupSize"`
+	Duration  int32  `json:"duration"`
 
 	// If true, we are allowed to ask Fluxion for a reservation
 	Reservation bool `json:"reservation"`
@@ -115,9 +116,12 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		return err
 	}
 
+	// Flux job identifier (known to fluxion)
+	fluxID := response.GetFluxID()
+
 	// If it's reserved, we need to add the id to our reservation table
 	if response.Reserved {
-		rRows, err := pool.Query(fluxionCtx, queries.AddReservationQuery, job.Args.GroupName, response.GetFluxID())
+		rRows, err := pool.Query(fluxionCtx, queries.AddReservationQuery, job.Args.GroupName, fluxID)
 		if err != nil {
 			return err
 		}
@@ -150,10 +154,10 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	defer rows.Close()
 
 	// Kick off a cleaning job for when everyting should be cancelled
-	//	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
-	//	if err != nil {
-	//		return fmt.Errorf("error getting client from context: %w", err)
-	//	}
+	err = SubmitCleanup(ctx, pool, job.Args.Duration, int64(fluxID), true, []string{})
+	if err != nil {
+		return err
+	}
 
 	// Collect rows into single result
 	// pgx.CollectRows(rows, pgx.RowTo[string])

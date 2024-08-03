@@ -4,7 +4,7 @@ package queries
 const (
 	GetTimestampQuery = "select created_at from pods_provisional where group_name=$1 limit 1"
 	GetPodQuery       = "select * from pods_provisional where group_name=$1 and namespace=$2 and name=$3"
-	InsertPodQuery    = "insert into pods_provisional (podspec, namespace, name, created_at, group_name, group_size) values ($1, $2, $3, $4, $5, $6)"
+	InsertPodQuery    = "insert into pods_provisional (podspec, namespace, name, duration, created_at, group_name, group_size) values ($1, $2, $3, $4, $5, $6, $7)"
 	CountPodsQuery    = "select count(*) from pods_provisional where group_name=$1"
 	UpdateNodesQuery  = "update river_job set args = jsonb_set(args, '{nodes}', to_jsonb($1::text)) where id=$2;"
 
@@ -25,5 +25,5 @@ const (
 
 	// Note that is used to be done with two queries - these are no longer used
 	SelectGroupsAtSizeQuery = "select group_name from pods_provisional group by group_name, group_size, created_at having group_size >= count(*) order by created_at desc;"
-	SelectGroupsQuery       = "select group_name, group_size, podspec from pods_provisional where group_name in ('%s');"
+	SelectGroupsQuery       = "select group_name, group_size, podspec, duration from pods_provisional where group_name in ('%s');"
 )
