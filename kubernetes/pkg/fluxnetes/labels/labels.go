@@ -10,9 +10,6 @@ const (
 	// We use the same label to be consistent
 	PodGroupLabel     = "fluxnetes.group-name"
 	PodGroupSizeLabel = "fluxnetes.group-size"
-
-	// How long should the group run, in seconds (before cancel)
-	PodGroupDurationLabel = "fluxnetes.duration"
 )
 
 // GetPodGroupLabel get pod group name from pod labels

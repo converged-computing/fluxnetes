@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod
+  labels:
+    fluxnetes.group-name: pod
+spec:
+  activeDeadlineSeconds: 5
+  schedulerName: fluxnetes
+  containers:
+  - name: fruit
+    image: busybox
+    command: [sleep, "10"]

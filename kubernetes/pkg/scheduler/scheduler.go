@@ -460,9 +460,15 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	// SchedulingQueue, in effect causing a deadlock on shutdown.
 	go wait.UntilWithContext(ctx, sched.ScheduleOne, 0)
 
+	// Get a handle to the fluxnetes framework
+	fwk, ok := sched.Profiles["fluxnetes"]
+	if !ok {
+		logger.Error(fmt.Errorf("Missing plugin"), "Cannot find fluxnetes plugin")
+	}
+
 	// This is the only added line to start our queue
 	logger.Info("[FLUXNETES]", "Starting", "queue")
-	queue, err := fluxnetes.NewQueue(ctx)
+	queue, err := fluxnetes.NewQueue(ctx, fwk)
 	if err != nil {
 		logger.Error(err, "Issue with Fluxnetes queue")
 	}
@@ -471,6 +477,9 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	// Set the queue on the scheduler for access across interface
 	sched.Queue = queue
 	defer sched.Queue.Pool.Close()
+
+	// Get and run the informer (update, delete pod events)
+	go sched.Queue.GetInformer().Run(ctx.Done())
 
 	// Make an empty state for now, just for functions
 	state := framework.NewCycleState()

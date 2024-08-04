@@ -12,11 +12,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivershared/util/slogutil"
+	"k8s.io/client-go/tools/cache"
 
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
 	strategies "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy"
@@ -33,6 +34,7 @@ type Queue struct {
 	riverClient  *river.Client[pgx.Tx]
 	EventChannel *QueueEvent
 	Strategy     strategies.QueueStrategy
+	Handle       framework.Handle
 
 	// IMPORTANT: subscriptions need to use same context
 	// that client submit them uses
@@ -55,7 +57,7 @@ type QueueEvent struct {
 }
 
 // NewQueue starts a new queue with a river client
-func NewQueue(ctx context.Context) (*Queue, error) {
+func NewQueue(ctx context.Context, handle framework.Handle) (*Queue, error) {
 	dbPool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return nil, err
@@ -105,6 +107,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 		Strategy:         strategy,
 		Context:          ctx,
 		ReservationDepth: depth,
+		Handle:           handle,
 	}
 	queue.setupEvents()
 	return &queue, nil
@@ -139,6 +142,21 @@ func (q *Queue) setupEvents() {
 	q.EventChannel = &QueueEvent{Function: trigger, Channel: c}
 }
 
+// GetInformer returns the pod informer to run as a go routine
+func (q *Queue) GetInformer() cache.SharedIndexInformer {
+
+	// Performance improvement when retrieving list of objects by namespace or we'll log 'index not exist' warning.
+	podsInformer := q.Handle.SharedInformerFactory().Core().V1().Pods().Informer()
+	podsInformer.AddIndexers(cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+
+	// Event handlers to call on update/delete for cleanup
+	podsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: q.UpdatePodEvent,
+		DeleteFunc: q.DeletePodEvent,
+	})
+	return podsInformer
+}
+
 // Enqueue a new job to the provisional queue
 // 1. Assemble (discover or define) the group
 // 2. Add to provisional table
@@ -150,13 +168,14 @@ func (q *Queue) Enqueue(pod *corev1.Pod) error {
 	if err != nil {
 		return err
 	}
-	duration, err := groups.GetPodGroupDuration(pod)
+
+	// Get the creation timestamp for the group
+	ts, err := q.GetCreationTimestamp(pod, groupName)
 	if err != nil {
 		return err
 	}
 
-	// Get the creation timestamp for the group
-	ts, err := q.GetCreationTimestamp(pod, groupName)
+	duration, err := groups.GetPodGroupDuration(pod)
 	if err != nil {
 		return err
 	}
