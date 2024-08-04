@@ -1,17 +1,15 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: job
+  name: job-deadline
 spec:
   template:
-    metadata:
-      labels:
-        fluxnetes.group-name: job
     spec:
       schedulerName: fluxnetes
+      activeDeadlineSeconds: 5
       containers:
       - name: job
         image: busybox
-        command: [echo, potato]
+        command: [sleep, "10"]
       restartPolicy: Never
   backoffLimit: 4

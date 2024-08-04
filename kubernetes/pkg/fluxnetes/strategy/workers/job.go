@@ -153,15 +153,14 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	}
 	defer rows.Close()
 
-	// Kick off a cleaning job for when everyting should be cancelled
-	err = SubmitCleanup(ctx, pool, job.Args.Duration, int64(fluxID), true, []string{})
-	if err != nil {
-		return err
+	// Kick off a cleaning job for when everyting should be cancelled, but only if
+	// there is a deadline set. We can't set a deadline for services, etc.
+	if job.Args.Duration > 0 {
+		err = SubmitCleanup(ctx, pool, pod.Spec.ActiveDeadlineSeconds, job.Args.Podspec, int64(fluxID), true, []string{})
+		if err != nil {
+			return err
+		}
 	}
-
-	// Collect rows into single result
-	// pgx.CollectRows(rows, pgx.RowTo[string])
-	// klog.Infof("Values: %s", values)
 	klog.Infof("[JOB-WORKER-COMPLETE] nodes allocated %s for group %s (flux job id %d)\n",
 		nodeStr, job.Args.GroupName, job.Args.FluxJob)
 	return nil

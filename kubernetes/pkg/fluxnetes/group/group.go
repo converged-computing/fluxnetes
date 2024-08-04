@@ -1,14 +1,18 @@
 package group
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"strconv"
 
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/defaults"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/labels"
 )
 
@@ -18,9 +22,7 @@ type PodGroup struct {
 	Name      string
 	Size      int32
 	Timestamp metav1.MicroTime
-
-	// Duration in seconds
-	Duration int32
+	Duration  int64
 }
 
 // getPodGroupName returns the pod group name
@@ -61,28 +63,40 @@ func GetPodGroupSize(pod *corev1.Pod) (int32, error) {
 	return int32(size), nil
 }
 
+// AddDuration adds the pod.Spec.ActiveDeadlineSeconds if it isn't set.
+func AddDeadline(ctx context.Context, pod *corev1.Pod) error {
+
+	// Cut out early if it is nil - will be added later
+	if pod.Spec.ActiveDeadlineSeconds == nil {
+		return nil
+	}
+	// Also cut out early with no error if one is set
+	if *pod.Spec.ActiveDeadlineSeconds > int64(0) {
+		return nil
+	}
+	payload := `{"spec": {"activeDeadlineSeconds": 3600}`
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return err
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	_, err = clientset.CoreV1().Pods(pod.Namespace).Patch(ctx, pod.Name, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
+	return err
+}
+
 // GetPodGroupDuration gets the runtime of a job in seconds
 // We default to an hour (3600 seconds)
-func GetPodGroupDuration(pod *corev1.Pod) (int32, error) {
+func GetPodGroupDuration(pod *corev1.Pod) (int64, error) {
 
-	// Do we have a group size? This will be parsed as a string, likely
-	duration, ok := pod.Labels[labels.PodGroupDurationLabel]
-	if !ok {
-		duration = "3600"
-		pod.Labels[labels.PodGroupDurationLabel] = duration
+	// It is already set
+	if pod.Spec.ActiveDeadlineSeconds != nil && *pod.Spec.ActiveDeadlineSeconds > int64(0) {
+		return *pod.Spec.ActiveDeadlineSeconds, nil
 	}
-
-	// We need the group size to be an integer now!
-	jobDuration, err := strconv.ParseInt(duration, 10, 32)
-	if err != nil {
-		return defaults.DefaultDuration, err
-	}
-
-	// The duration cannot be negative
-	if jobDuration < 0 {
-		return 0, fmt.Errorf("%s label must be >= 0", labels.PodGroupDurationLabel)
-	}
-	return int32(jobDuration), nil
+	// We can't enforce everything have a duration, lots of services should not.
+	return 0, nil
 }
 
 // GetPodCreationTimestamp

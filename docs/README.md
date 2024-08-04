@@ -8,10 +8,14 @@ After install (see the [README](../README.md)) you can create any abstraction (p
 |------|-------------|---------|
 | "fluxnetes.group-name" | The name of the group | fluxnetes-group-<namespace>-<name> |
 | "fluxnetes.group-size" | The size of the group | 1 |
-| "fluxnetes.duration"   | Duration of the job (seconds) | 3600 | 
 
 As you might guess, if you specify `fluxnetes` as the scheduler but don't provide any of the above, the defaults are used. This means a single
-pod becomes a single member group. If you set the duration to 0, it will be unlimited. If you set a negative value, you'll get an error.
+pod becomes a single member group. 
+
+### Duration
+
+Any pod object (or PodSpec template) can accept an `activeDeadlineSeconds` and this is how you should set your job time. Note that if you don't set this value, there will
+be no duration (and the pod or object can run forever), which is needed for services, etc.
 
 ## Design
 

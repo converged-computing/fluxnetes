@@ -182,15 +182,17 @@ SELECT group_name, group_size from pods_provisional;
 - [ ] implement other queue strategies (fcfs and backfill with > 1 reservation depth)
   - fcfs can work by only adding one job (first in provisional) to the worker queue at once, only when it's empty! lol.
 - [ ] create state diagram that shows how stuff works
-- [ ] When a job is allocated, we likely need to submit a cancel job that will ensure it can be cancelled when the time runs out
-  - [x] add the label for the job timeout, default to one hour
-  - [x] cleanup job is triggered after duration
-  - [ ] issue cancel to fluxion and delete pods up to parent (how to do this)? 
+- [ ] Decide what to do on events - currently we delete / cleanup when there is a decided timeout for pod/job
 - [ ] When a job is not able to schedule, it should go into a rejected queue, which should finish and return a NOT SCHEDULABLE status.
+- [ ] In cleanup we will need to handle [BlockOwnerDeletion](https://github.com/kubernetes/kubernetes/blob/dbc2b0a5c7acc349ea71a14e49913661eaf708d2/staging/src/k8s.io/apimachinery/pkg/apis/meta/v1/types.go#L319). I don't yet understand the cases under which this is used, but likely we want to delete the child object and allow the owner to do whatever is the default (create another pod, etc.)
 
 Thinking:
 
+- Need to walk through deletion / update process - right now we have cleanup event if there is termination time, otherwise we wait for pod event to informer
 - We can allow trying to schedule jobs in the future, although I'm not sure about that use case (add label to do this)
+- What should we do if a pod is updated, and the group is removed?
+- fluxion is deriving the nodes on its own, but we might get updated nodes from the scheduler. It might be good to think about how to use the fluxion-service container instead.
+- more efficient to retrieve podspec from kubernetes instead of putting into database?
 
 ## License
 
