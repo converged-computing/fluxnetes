@@ -50,6 +50,8 @@ message MatchResponse {
 
 message CancelRequest {
     uint64 fluxID = 1;
+    // It's ok if it doesn't exist (don't issue an error)
+    bool NoExistOK = 2;
 }
 
 // The Match response message

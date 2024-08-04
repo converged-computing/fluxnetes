@@ -5,7 +5,7 @@ import (
 	klog "k8s.io/klog/v2"
 )
 
-// UpdatePod is called on an update, and the old and new object are presented
+// UpdatePodEvent is called on an update, and the old and new object are presented
 func (q *Queue) UpdatePodEvent(oldObj, newObj interface{}) {
 
 	pod := oldObj.(*corev1.Pod)
@@ -29,7 +29,9 @@ func (q *Queue) UpdatePodEvent(oldObj, newObj interface{}) {
 	}
 }
 
-// DeletePod handles the delete event handler
+// DeletePodEventhandles the delete event handler
+// We don't need to worry about calling cancel to fluxion if the fluxid is already cleaned up
+// It has a boolean that won't return an error if the job does not exist.
 func (q *Queue) DeletePodEvent(podObj interface{}) {
 	pod := podObj.(*corev1.Pod)
 
@@ -40,6 +42,13 @@ func (q *Queue) DeletePodEvent(podObj interface{}) {
 		klog.Infof("Received delete event 'Running' for pod %s/%s", pod.Namespace, pod.Name)
 	case corev1.PodSucceeded:
 		klog.Infof("Received delete event 'Succeeded' for pod %s/%s", pod.Namespace, pod.Name)
+		// TODO insert submit cleanup here - need a way to get the fluxId
+		// Likely we can keep around the group name and flux id in a database, and get / delete from there.
+		// err = SubmitCleanup(ctx, pool, pod.Spec.ActiveDeadlineSeconds, job.Args.Podspec, int64(fluxID), true, []string{})
+		//if err != nil {
+		//		klog.Errorf("Issue cleaning up deleted pod", err)
+		//	}
+		//}}
 	case corev1.PodFailed:
 		klog.Infof("Received delete event 'Failed' for pod %s/%s", pod.Namespace, pod.Name)
 	case corev1.PodUnknown:

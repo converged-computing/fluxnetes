@@ -148,10 +148,9 @@ func (w CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) er
 	// First attempt cleanup in the cluster, only if in Kubernetes
 	if job.Args.Kubernetes {
 		err := deleteObjects(ctx, job)
-		if errors.IsNotFound(err) {
-			return nil
-		}
-		if err != nil {
+
+		// The job might have been deleted another way
+		if err != nil && !errors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -171,11 +170,17 @@ func (w CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) er
 	defer cancel()
 
 	// Prepare the request to cancel
+	// https://github.com/flux-framework/flux-sched/blob/master/resource/reapi/bindings/go/src/fluxcli/reapi_cli.go#L226
 	request := &pb.CancelRequest{
 		FluxID: uint64(job.Args.FluxID),
+
+		// Don't return an error if the job id does not exist. See:
+		NoExistOK: true,
 	}
 
 	// Assume if there is an error we should try again
+	// TOOD:(vsoch) How to distinguish between cancel error
+	// and possible already cancelled?
 	response, err := fluxion.Cancel(fluxionCtx, request)
 	if err != nil {
 		klog.Errorf("[Fluxnetes] Issue with cancel %s %s", response.Error, err)

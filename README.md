@@ -183,11 +183,15 @@ SELECT group_name, group_size from pods_provisional;
   - fcfs can work by only adding one job (first in provisional) to the worker queue at once, only when it's empty! lol.
 - [ ] create state diagram that shows how stuff works
 - [ ] Decide what to do on events - currently we delete / cleanup when there is a decided timeout for pod/job
+  - Arguably, we need to respond to these events for services, etc., where a cleanup job is not scheduled.
+  - This means we need a way to issue cancel to fluxion, and for fluxion to distinguish between 404 and another error.
 - [ ] When a job is not able to schedule, it should go into a rejected queue, which should finish and return a NOT SCHEDULABLE status.
 - [ ] In cleanup we will need to handle [BlockOwnerDeletion](https://github.com/kubernetes/kubernetes/blob/dbc2b0a5c7acc349ea71a14e49913661eaf708d2/staging/src/k8s.io/apimachinery/pkg/apis/meta/v1/types.go#L319). I don't yet understand the cases under which this is used, but likely we want to delete the child object and allow the owner to do whatever is the default (create another pod, etc.)
 
 Thinking:
 
+- How do we distinguish between a cancel to fluxion (error) vs. error because it was already cancelled?
+ - How would that happen?
 - Need to walk through deletion / update process - right now we have cleanup event if there is termination time, otherwise we wait for pod event to informer
 - We can allow trying to schedule jobs in the future, although I'm not sure about that use case (add label to do this)
 - What should we do if a pod is updated, and the group is removed?

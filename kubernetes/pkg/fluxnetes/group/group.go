@@ -63,7 +63,7 @@ func GetPodGroupSize(pod *corev1.Pod) (int32, error) {
 	return int32(size), nil
 }
 
-// AddDuration adds the pod.Spec.ActiveDeadlineSeconds if it isn't set.
+// AddDeadline adds the pod.Spec.ActiveDeadlineSeconds if it isn't set.
 func AddDeadline(ctx context.Context, pod *corev1.Pod) error {
 
 	// Cut out early if it is nil - will be added later
@@ -88,7 +88,7 @@ func AddDeadline(ctx context.Context, pod *corev1.Pod) error {
 }
 
 // GetPodGroupDuration gets the runtime of a job in seconds
-// We default to an hour (3600 seconds)
+// We default to 0, no limit, to allow for services, etc.
 func GetPodGroupDuration(pod *corev1.Pod) (int64, error) {
 
 	// It is already set
@@ -99,7 +99,7 @@ func GetPodGroupDuration(pod *corev1.Pod) (int64, error) {
 	return 0, nil
 }
 
-// GetPodCreationTimestamp
+// GetPodCreationTimestamp returns the creation timestamp as a MicroTime
 func GetPodCreationTimestamp(pod *corev1.Pod) metav1.MicroTime {
 
 	// This is the first member of the group - use its CreationTimestamp

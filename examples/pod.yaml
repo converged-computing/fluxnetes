@@ -4,7 +4,6 @@ metadata:
   name: pod
   labels:
     fluxnetes.group-name: pod
-#    fluxnetes.duration: "5"
 spec:
   activeDeadlineSeconds: 5
   schedulerName: fluxnetes

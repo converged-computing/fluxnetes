@@ -45,10 +45,13 @@ func (fluxion *Fluxion) InitFluxion(policy, label string) {
 }
 
 // Cancel wraps the Cancel function of the fluxion go bindings
-func (fluxion *Fluxion) Cancel(ctx context.Context, in *pb.CancelRequest) (*pb.CancelResponse, error) {
+func (fluxion *Fluxion) Cancel(
+	ctx context.Context,
+	in *pb.CancelRequest,
+) (*pb.CancelResponse, error) {
 
 	klog.Infof("[Fluxnetes] received cancel request %v\n", in)
-	err := fluxion.cli.Cancel(int64(in.FluxID), true)
+	err := fluxion.cli.Cancel(int64(in.FluxID), in.NoExistOK)
 	if err != nil {
 		return nil, err
 	}
