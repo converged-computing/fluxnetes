@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,7 +25,7 @@ type QueueStrategy interface {
 	// provide the entire queue to interact with
 	Schedule(context.Context, *pgxpool.Pool, int32) ([]river.InsertManyParams, error)
 	AddWorkers(*river.Workers)
-	Enqueue(context.Context, *pgxpool.Pool, *corev1.Pod, *groups.PodGroup) error
+	Enqueue(context.Context, *pgxpool.Pool, *corev1.Pod, *groups.PodGroup) (types.EnqueueStatus, error)
 	PostSubmit(context.Context, *pgxpool.Pool, *river.Client[pgx.Tx]) error
 
 	// Return metadata about the strategy for the Queue to know

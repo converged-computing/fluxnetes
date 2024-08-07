@@ -27,7 +27,9 @@ import (
 )
 
 var (
-	GroupName = "scheduling.x-k8s.io"
+	CancelledState = "cancelled"
+	CleanupQueue   = "cleanup"
+	Unsatisfiable  = "unsatisfiable"
 )
 
 // JobResult serializes a result from Fluxnetes in the scheduler back to metadata

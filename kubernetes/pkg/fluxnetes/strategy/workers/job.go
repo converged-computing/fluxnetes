@@ -37,6 +37,7 @@ type JobArgs struct {
 	GroupName string `json:"groupName"`
 	GroupSize int32  `json:"groupSize"`
 	Duration  int32  `json:"duration"`
+	Namespace string `json:"namespace"`
 
 	// If true, we are allowed to ask Fluxion for a reservation
 	Reservation bool `json:"reservation"`
@@ -128,6 +129,12 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		defer rRows.Close()
 	}
 
+	// Not reserved AND not allocated indicates not possible
+	if !response.Reserved && !response.Allocated {
+		errorMessage := fmt.Sprintf("Fluxion could not allocate nodes for %s, likely Unsatisfiable", job.Args.GroupName)
+		klog.Info(errorMessage)
+		return river.JobCancel(fmt.Errorf(errorMessage))
+	}
 	// This means we didn't get an allocation - we might have a reservation (to do
 	// something with later) but for now we just print it.
 	if !response.Allocated {
@@ -155,6 +162,8 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 
 	// Kick off a cleaning job for when everyting should be cancelled, but only if
 	// there is a deadline set. We can't set a deadline for services, etc.
+	// This is here instead of responding to deletion / termination since a job might
+	// run longer than the duration it is allowed.
 	if job.Args.Duration > 0 {
 		err = SubmitCleanup(ctx, pool, pod.Spec.ActiveDeadlineSeconds, job.Args.Podspec, int64(fluxID), true, []string{})
 		if err != nil {

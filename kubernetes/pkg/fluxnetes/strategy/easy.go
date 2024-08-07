@@ -15,6 +15,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy/provisional"
 	work "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy/workers"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 )
 
 // Easy with Backfill
@@ -59,7 +60,6 @@ func (s EasyBackfill) Schedule(
 	reservationDepth int32,
 ) ([]river.InsertManyParams, error) {
 
-	// TODO move logic from here into provisional
 	pending := provisional.NewProvisionalQueue(pool)
 
 	// Is this group ready to be scheduled with the addition of this pod?
@@ -91,7 +91,7 @@ func (s EasyBackfill) Schedule(
 		}
 		batch = append(batch, args)
 	}
-	return batch, err
+	return batch, nil
 }
 
 // PostSubmit does clearing of reservations
@@ -142,18 +142,20 @@ func (s EasyBackfill) PostSubmit(
 	}
 
 	// Insert the cleanup jobs
-	count, err := riverClient.InsertMany(ctx, batch)
-	if err != nil {
-		return err
-	}
-	klog.Infof("[easy] post cleanup (cancel) of %d jobs", count)
+	if len(batch) > 0 {
+		count, err := riverClient.InsertMany(ctx, batch)
+		if err != nil {
+			return err
+		}
+		klog.Infof("[easy] post cleanup (cancel) of %d jobs", count)
 
-	// Now cleanup!
-	dRows, err := pool.Query(ctx, queries.DeleteReservationsQuery)
-	if err != nil {
-		return err
+		// Now cleanup!
+		dRows, err := pool.Query(ctx, queries.DeleteReservationsQuery)
+		if err != nil {
+			return err
+		}
+		defer dRows.Close()
 	}
-	defer dRows.Close()
 	return nil
 }
 
@@ -162,7 +164,7 @@ func (s EasyBackfill) Enqueue(
 	pool *pgxpool.Pool,
 	pod *corev1.Pod,
 	group *groups.PodGroup,
-) error {
+) (types.EnqueueStatus, error) {
 	pending := provisional.NewProvisionalQueue(pool)
 	return pending.Enqueue(ctx, pod, group)
 }

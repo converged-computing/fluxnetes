@@ -68,9 +68,11 @@ func main() {
 	}
 
 	fmt.Printf("[GRPCServer] gRPC Listening on %s\n", lis.Addr().String())
-	if err := server.Serve(lis); err != nil {
+	err = server.Serve(lis)
+	if err != nil {
 		fmt.Printf("[GRPCServer] failed to serve: %v\n", err)
 	}
 
+	flux.Close()
 	fmt.Printf("[GRPCServer] Exiting\n")
 }

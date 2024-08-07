@@ -4,27 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	corev1 "k8s.io/api/core/v1"
 	klog "k8s.io/klog/v2"
 	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy/workers"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 )
 
 // Job Database Model we are retrieving for jobs
 // We will eventually want more than these three
 type JobModel struct {
 	GroupName string `db:"group_name"`
+	Namespace string `db:"namespace"`
 	GroupSize int32  `db:"group_size"`
-	Podspec   string `db:"podspec"`
 	Duration  int32  `db:"duration"`
-	// CreatedAt time.Time `db:"created_at"`
+	Podspec   string `db:"podspec"`
+}
+
+// GroupModel provides the group name and namespace for groups at size
+type GroupModel struct {
+	GroupName string `db:"group_name"`
+	Namespace string `db:"namespace"`
 }
 
 // The provisional queue is a custom queue (to go along with a queue strategy attached
@@ -41,79 +48,103 @@ type ProvisionalQueue struct {
 	pool *pgxpool.Pool
 }
 
-// Enqueue adds a pod to the provisional queue. A pool database connection is required,
-// which comes from the main Fluxnetes queue.
-func (q *ProvisionalQueue) Enqueue(
+// incrementGroupProvisonal adds 1 to the count of the group provisional queue
+func incrementGroupProvisional(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	pod *corev1.Pod,
 	group *groups.PodGroup,
 ) error {
 
-	// This query will fail if there are no rows (the podGroup is not known)
-	var groupName, name, namespace string
-	row := q.pool.QueryRow(context.Background(), queries.GetPodQuery, group.Name, pod.Namespace, pod.Name)
-	err := row.Scan(groupName, name, namespace)
-
-	// We didn't find the pod in the table - add it.
-	if err != nil {
-		klog.Errorf("Did not find pod %s in group %s in table", pod.Name, group)
-
-		// Prepare timestamp and podspec for insertion...
-		ts := &pgtype.Timestamptz{Time: group.Timestamp.Time, Valid: true}
-		podspec, err := json.Marshal(pod)
-		if err != nil {
-			return err
-		}
-		_, err = q.pool.Query(ctx, queries.InsertPodQuery, string(podspec), pod.Namespace,
-			pod.Name, group.Duration, ts, group.Name, group.Size)
-
-		// Show the user a success or an error, we return it either way
-		if err != nil {
-			klog.Infof("Error inserting provisional pod %s", err)
-		}
-		return err
-	}
+	// Up the size of the group in provisional here
+	query := fmt.Sprintf(queries.IncrementGroupProvisional, group.Name, pod.Namespace)
+	klog.Infof("Incrementing group %s by 1 with pod %s", group.Name, pod.Name)
+	_, err := pool.Exec(ctx, query)
 	return err
+
 }
 
-// queryGroupsAtSize returns groups that have achieved minimum size
-func (q *ProvisionalQueue) queryGroupsAtSize(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+// Enqueue adds a pod to the provisional queue, and if not yet added, the group to the group queue.
+// provisional queue. A pool database connection is required,  which comes from the main Fluxnetes queue.
+func (q *ProvisionalQueue) Enqueue(
+	ctx context.Context,
+	pod *corev1.Pod,
+	group *groups.PodGroup,
+) (types.EnqueueStatus, error) {
+
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		klog.Errorf("Issue creating new pool %s", err)
+		return types.Unknown, err
+	}
+	defer pool.Close()
+
+	// First check - a pod group in pending is not allowed to enqueue new pods.
+	// This means the job is submit / running (and not completed
+	result, err := pool.Exec(context.Background(), queries.IsPendingQuery, group.Name, pod.Namespace)
+	if err != nil {
+		klog.Infof("Error checking if pod %s/%s group is in pending queue", pod.Namespace, pod.Name)
+		return types.Unknown, err
+	}
+	if strings.Contains(result.String(), "INSERT 1") {
+		return types.GroupAlreadyInPending, nil
+	}
+
+	// Here we add to single pod provisional.
+	// Prepare timestamp and podspec for insertion...
+	podspec, err := json.Marshal(pod)
+	if err != nil {
+		klog.Infof("Error with pod marshall %s/%s when adding to provisional", pod.Namespace, pod.Name)
+		return types.PodInvalid, err
+	}
+
+	// Insert or fall back if does not exists to doing nothing
+	// TODO add back timestamp, and optimize this function to minimize database exec calls
+	// ts := &pgtype.Timestamptz{Time: group.Timestamp.Time, Valid: true}
+	query := fmt.Sprintf(queries.InsertIntoProvisionalQuery, string(podspec), pod.Namespace, pod.Name, group.Duration, group.Name, group.Name, pod.Namespace, pod.Name)
+	_, err = pool.Exec(context.Background(), query)
+	if err != nil {
+		klog.Infof("Error inserting pod %s/%s into provisional queue", pod.Namespace, pod.Name)
+		return types.Unknown, err
+	}
+
+	err = incrementGroupProvisional(context.Background(), pool, pod, group)
+	if err != nil {
+		klog.Infof("Error incrementing Pod %s/%s", pod.Namespace, pod.Name)
+		return types.Unknown, err
+	}
+
+	// Next add to group provisional - will only add if does not exist, and if so, we make count 1 to
+	// avoid doing the increment call.
+	// TODO eventually need to insert timestamp here
+	query = fmt.Sprintf(queries.InsertIntoGroupProvisional, group.Name, pod.Namespace, group.Size, group.Duration, string(podspec), group.Name, pod.Namespace)
+	_, err = pool.Exec(ctx, query)
+	if err != nil {
+		klog.Infof("Error inserting group into provisional %s", err)
+		return types.Unknown, err
+	}
+	return types.PodEnqueueSuccess, nil
+}
+
+// getReadyGroups gets groups thta are ready for moving from provisional to pending
+func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, error) {
 
 	// First retrieve the group names that are the right size
 	rows, err := pool.Query(ctx, queries.SelectGroupsAtSizeQuery)
 	if err != nil {
+		klog.Infof("GetReadGroups Error: select groups at size: %s", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	// Collect rows into single result
-	groupNames, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	return groupNames, err
-}
-
-// queryGroupsAtSize returns groups that have achieved minimum size
-func (q *ProvisionalQueue) deleteGroups(ctx context.Context, pool *pgxpool.Pool, groupNames []string) error {
-
-	// First retrieve the group names that are the right size
-	query := fmt.Sprintf(queries.DeleteGroupsQuery, strings.Join(groupNames, ","))
-	rows, err := pool.Query(ctx, query)
+	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[JobModel])
 	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	return err
-}
-
-// queryGroupsAtSize returns groups that have achieved minimum size
-func (q *ProvisionalQueue) getGroupsAtSize(ctx context.Context, pool *pgxpool.Pool, groupNames []string) ([]workers.JobArgs, error) {
-
-	// Now we need to collect all the pods that match that.
-	query := fmt.Sprintf(queries.SelectGroupsQuery, strings.Join(groupNames, "','"))
-	rows, err := pool.Query(ctx, query)
-	if err != nil {
+		klog.Infof("GetReadGroups Error: collect rows for groups at size: %s", err)
 		return nil, err
 	}
-	defer rows.Close()
+
+	// Get one representative podspec for each
+	var podspec string
 
 	// Collect rows into map, and then slice of jobs
 	// The map whittles down the groups into single entries
@@ -122,17 +153,24 @@ func (q *ProvisionalQueue) getGroupsAtSize(ctx context.Context, pool *pgxpool.Po
 	lookup := map[string]workers.JobArgs{}
 
 	// Collect rows into single result
-	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[JobModel])
-
 	// TODO(vsoch) we need to collect all podspecs here and be able to give that to the worker
+	// Right now we just select a representative one for the entire group.
 	for _, model := range models {
+		row := q.pool.QueryRow(ctx, queries.SelectRepresentativePodQuery, string(model.GroupName), string(model.Namespace))
+		err = row.Scan(&podspec)
+		if err != nil {
+			klog.Errorf("Issue scanning podspec: %s", err)
+			return nil, err
+		}
+		klog.Infof("parsing group %s", model)
 		jobArgs := workers.JobArgs{
 			GroupName: model.GroupName,
-			Podspec:   model.Podspec,
 			GroupSize: model.GroupSize,
 			Duration:  model.Duration,
+			Podspec:   podspec,
+			Namespace: model.Namespace,
 		}
-		lookup[model.GroupName] = jobArgs
+		lookup[model.GroupName+"-"+model.Namespace] = jobArgs
 	}
 	for _, jobArgs := range lookup {
 		jobs = append(jobs, jobArgs)
@@ -140,62 +178,85 @@ func (q *ProvisionalQueue) getGroupsAtSize(ctx context.Context, pool *pgxpool.Po
 	return jobs, nil
 }
 
-// This was an attmpt to combine into one query (does not work, still two!)
-func (q *ProvisionalQueue) getGroupsReady(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, []string, error) {
+// deleteGroups deletes groups from the provisional table
+func (q *ProvisionalQueue) deleteGroups(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	groups []workers.JobArgs,
+) error {
 
-	groupNames := []string{}
+	// select based on group name and namespace, which should be unique
+	query := ""
+	for i, group := range groups {
+		query += fmt.Sprintf("(group_name = '%s' and namespace='%s')", group.GroupName, group.Namespace)
+		if i < len(groups)-1 {
+			query += " or "
+		}
+	}
+	klog.Infof("Query is %s", query)
 
-	// Refresh groups table
-	_, err := pool.Query(ctx, queries.RefreshGroupsQuery)
+	// This deletes from the single pod provisional table
+	queryProvisional := fmt.Sprintf(queries.DeleteGroupsQuery, query)
+	_, err := pool.Exec(ctx, queryProvisional)
 	if err != nil {
-		return nil, groupNames, err
+		klog.Infof("Error with delete provisional pods %s: %s", query, err)
+		return err
 	}
 
-	// Now we need to collect all the pods that match that.
-	rows, err := pool.Query(ctx, queries.SelectGroupsReadyQuery)
+	// This from the grroup
+	query = fmt.Sprintf(queries.DeleteProvisionalGroupsQuery, query)
+	_, err = pool.Exec(ctx, query)
 	if err != nil {
-		return nil, groupNames, err
+		klog.Infof("Error with delete groups provisional %s: %s", query, err)
+		return err
 	}
-	defer rows.Close()
+	return err
+}
 
-	// Collect rows into map, and then slice of jobs
-	// The map whittles down the groups into single entries
-	// We will eventually not want to do that, assuming podspecs are different in a group
-	jobs := []workers.JobArgs{}
-	lookup := map[string]workers.JobArgs{}
+// Enqueue adds a pod to the provisional queue. A pool database connection is required,
+// which comes from the main Fluxnetes queue.
+func (q *ProvisionalQueue) insertPending(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	groups []workers.JobArgs,
+) error {
 
-	// Collect rows into single result
-	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[JobModel])
-
-	// TODO(vsoch) we need to collect all podspecs here and be able to give that to the worker
-	for _, model := range models {
-		jobArgs := workers.JobArgs{GroupName: model.GroupName, Podspec: model.Podspec, GroupSize: model.GroupSize}
-		lookup[model.GroupName] = jobArgs
+	// Send in patch
+	batch := &pgx.Batch{}
+	for _, group := range groups {
+		query := fmt.Sprintf(queries.InsertIntoPending, group.GroupName, group.Namespace, group.GroupSize, group.GroupName, group.Namespace)
+		batch.Queue(query)
 	}
-
-	for _, jobArgs := range lookup {
-		jobs = append(jobs, jobArgs)
-		groupNames = append(groupNames, jobArgs.GroupName)
+	klog.Infof("[Fluxnetes] Inserting %d groups into pending\n", len(groups))
+	result := pool.SendBatch(ctx, batch)
+	err := result.Close()
+	if err != nil {
+		klog.Errorf("Error comitting to send %d groups into pending %s", len(groups), err)
 	}
-	return jobs, groupNames, nil
+	return err
 }
 
 // ReadyJobs returns jobs that are ready from the provisional table, also cleaning up
 func (q *ProvisionalQueue) ReadyJobs(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, error) {
 
 	// 1. Get the list of group names that have pod count >= their size
-	groupNames, err := q.queryGroupsAtSize(ctx, pool)
+	jobs, err := q.getReadyGroups(ctx, pool)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Now we need to collect all the pods that match that.
-	jobs, err := q.getGroupsAtSize(ctx, pool, groupNames)
-	if err != nil {
-		return nil, err
-	}
+	klog.Infof("Found %d ready groups %s", len(jobs), jobs)
+	if len(jobs) > 0 {
 
-	// 3. Finally, we need to delete them from the provisional table
-	err = q.deleteGroups(ctx, pool, groupNames)
+		// Move them into pending! We do this first so that we are sure the groups
+		// are known to be pending before we delete from provisional.
+		err = q.insertPending(ctx, pool, jobs)
+		if err != nil {
+			return nil, err
+		}
+		// 3. Finally, we need to delete them from the provisional tables
+		// If more individual pods are added, they need to be a new group
+		err = q.deleteGroups(ctx, pool, jobs)
+	}
 	return jobs, err
 }

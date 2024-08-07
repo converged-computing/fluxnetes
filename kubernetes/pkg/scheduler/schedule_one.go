@@ -38,7 +38,9 @@ import (
 	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/parallelize"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 	internalqueue "k8s.io/kubernetes/pkg/scheduler/internal/queue"
+
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	"k8s.io/kubernetes/pkg/scheduler/util"
 	utiltrace "k8s.io/utils/trace"
@@ -67,38 +69,74 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	logger := klog.FromContext(ctx)
 	podInfo, err := sched.NextPod(logger)
 	if err != nil {
+		klog.Infof("Error getting next pod from queue %s", err)
 		logger.Error(err, "Error while retrieving next pod from scheduling queue")
 		return
 	}
 	// pod could be nil when schedulerQueue is closed
 	if podInfo == nil || podInfo.Pod == nil {
+		klog.Info("Podinfo is null")
 		return
 	}
 
 	pod := podInfo.Pod
+	//assumedPodInfo := podInfo.DeepCopy()
+
 	// TODO(knelasevero): Remove duplicated keys from log entry calls
 	// When contextualized logging hits GA
 	// https://github.com/kubernetes/kubernetes/issues/111672
 	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod))
 	ctx = klog.NewContext(ctx, logger)
-	logger.V(1).Info("This is a custom message for fluxnetes", "pod", klog.KObj(pod))
-	logger.V(4).Info("About to try and schedule pod", "pod", klog.KObj(pod))
 
+	klog.Infof("Getting framework for pod %s/%s", pod.Namespace, pod.Name)
 	fwk, err := sched.frameworkForPod(pod)
 	if err != nil {
 		// This shouldn't happen, because we only accept for scheduling the pods
 		// which specify a scheduler name that matches one of the profiles.
+		klog.Infof("Error getting framework for pod %s/%s", pod.Namespace, pod.Name)
 		logger.Error(err, "Error occurred")
 		return
 	}
+	klog.Infof("Skipping pod schedule of %s/%s", pod.Namespace, pod.Name)
 	if sched.skipPodSchedule(ctx, fwk, pod) {
 		return
 	}
 
 	// Add the pod to the provisional queue
-	err = sched.Queue.Enqueue(pod)
+	klog.Infof("Running enqueue for pod %s/%s", pod.Namespace, pod.Name)
+	//	start := time.Now()
+	enqueueStatus, err := sched.Queue.Enqueue(pod)
 	if err != nil {
+		klog.Infof("Enqueue for pod %s/%s was NOT successful: %s", pod.Namespace, pod.Name, err)
 		logger.Error(err, "Issue with fluxnetes Enqueue")
+	}
+	klog.Infof("Enqueue for pod %s/%s was successful", pod.Namespace, pod.Name)
+
+	// If we cannot schedule "unsatisfiable" we delete
+	deletePod := false
+
+	// If the group is already in pending we reject it. We do not
+	// currently support expanding groups that are undergoing processing, unless
+	// it is an explicit update to an object (TBA).
+	if enqueueStatus == types.GroupAlreadyInPending {
+		klog.Infof("Pod %s/%s has group already in pending queue, rejecting.", pod.Namespace, pod.Name)
+		//		status := framework.NewStatus(framework.UnschedulableAndUnresolvable, "pod group is actively in pending and cannot be changed")
+		//		sched.FailureHandler(ctx, fwk, assumedPodInfo, status, clearNominatedNode, start)
+		deletePod = true
+
+	} else if enqueueStatus == types.PodInvalid {
+		klog.Infof("Pod %s/%s is invalid or erroneous, rejecting.", pod.Namespace, pod.Name)
+		//		status := framework.NewStatus(framework.UnschedulableAndUnresolvable, "pod is invalid or unable to be scheduled")
+		//		sched.FailureHandler(ctx, fwk, assumedPodInfo, status, clearNominatedNode, start)
+		deletePod = true
+
+	} else if enqueueStatus == types.PodEnqueueSuccess {
+		// TODO but this should only happen once.
+		klog.Infof("Pod %s/%s was added to the provisional table", pod.Namespace, pod.Name)
+
+		// This is usually a database error or similar
+	} else if enqueueStatus == types.Unknown {
+		klog.Infof("There was an unknown error for pod %s/%s and we should have gotten err and not get here.", pod.Namespace, pod.Name)
 	}
 
 	// TODO(vsoch): the schedulingCycle should be run here, and we should save everything we need for either
@@ -111,7 +149,16 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 		logger.Error(err, "Issue with fluxnetes Schedule")
 	}
 
-	// TODO remove pod from active queue, we have in Fluxernetes provisional queue now
+	// Remove from scheduling queue so it does not come around again
+	// TODO(vsoch) need kubectl command again to list groups!
+	sched.SchedulingQueue.Done(pod.UID)
+	if deletePod {
+		klog.Infof("Cannot schedule pod, removing from queue.")
+		err = sched.SchedulingQueue.Delete(pod)
+		if err != nil {
+			logger.Error(err, "Issue deleting pod from queues")
+		}
+	}
 }
 
 var clearNominatedNode = &framework.NominatingInfo{NominatingMode: framework.ModeOverride, NominatedNodeName: ""}
@@ -172,7 +219,7 @@ func (sched *Scheduler) schedulingCycle(
 
 	metrics.SchedulingAlgorithmLatency.Observe(metrics.SinceInSeconds(start))
 
-	// NOTE: when refactored, this needs to be given the node from fluence
+	// NOTE: when refactored, this needs to be given the node from fluxion
 	// Right now we get a message about mismatch between scheduled and assumed
 	// Tell the cache to assume that a pod now is running on a given node, even though it hasn't been bound yet.
 	// This allows us to keep scheduling without waiting on binding to occur.

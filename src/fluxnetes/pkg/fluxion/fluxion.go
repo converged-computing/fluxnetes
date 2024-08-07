@@ -44,6 +44,11 @@ func (fluxion *Fluxion) InitFluxion(policy, label string) {
 	fluxion.cli.InitContext(string(jgf), p)
 }
 
+// Destroys properly closes (destroys) the fluxion client handle
+func (fluxion *Fluxion) Close() {
+	fluxion.cli.Destroy()
+}
+
 // Cancel wraps the Cancel function of the fluxion go bindings
 func (fluxion *Fluxion) Cancel(
 	ctx context.Context,
