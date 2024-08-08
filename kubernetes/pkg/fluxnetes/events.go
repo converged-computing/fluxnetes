@@ -1,9 +1,17 @@
 package fluxnetes
 
 import (
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy/workers"
+
 	corev1 "k8s.io/api/core/v1"
 	klog "k8s.io/klog/v2"
 )
+
+// Cleanup deletes a pod. It is assumed that it cannot be scheduled
+// This means we do not have a flux id to cancel (-1)
+func (q Queue) Cleanup(pod *corev1.Pod, podspec, groupName string) error {
+	return workers.Cleanup(q.Context, podspec, int64(-1), true, groupName)
+}
 
 // UpdatePodEvent is called on an update, and the old and new object are presented
 func (q *Queue) UpdatePodEvent(oldObj, newObj interface{}) {
@@ -42,7 +50,8 @@ func (q *Queue) DeletePodEvent(podObj interface{}) {
 		klog.Infof("Received delete event 'Running' for pod %s/%s", pod.Namespace, pod.Name)
 	case corev1.PodSucceeded:
 		klog.Infof("Received delete event 'Succeeded' for pod %s/%s", pod.Namespace, pod.Name)
-		// TODO insert submit cleanup here - need a way to get the fluxId
+		// TODO insert submit cleanup here - get the fluxid from pending?
+		// TODO need to put somewhere to remove from pending
 		// Likely we can keep around the group name and flux id in a database, and get / delete from there.
 		// err = SubmitCleanup(ctx, pool, pod.Spec.ActiveDeadlineSeconds, job.Args.Podspec, int64(fluxID), true, []string{})
 		//if err != nil {

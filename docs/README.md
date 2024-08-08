@@ -97,6 +97,14 @@ We will eventually have other strategies that allow for more reservations. This 
 - **Default** "workers queue" (is what I call it) is what handles asking fluxion for allocations. This is the main queue.
 - **Cleanup** "cancel queue" is what handles canceling reservations, and when pods are cancelled (to be implemented) it will handle that as well. It's a different queue (and different workers) so the jobs do not collide.
 
+#### State Diagram
+
+The following overview and diagrams describe the above components and show basic states.
+
+![images/state-overview.png](images/state-overview.png)
+
+![images/state-diagram.png](images/state-diagram.png)
+
 
 ## Notes
 

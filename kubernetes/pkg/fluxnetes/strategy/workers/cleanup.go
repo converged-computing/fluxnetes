@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,7 @@ import (
 
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/defaults"
 	pb "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/fluxion-grpc"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
 
 	"github.com/riverqueue/river"
 )
@@ -77,17 +79,22 @@ func SubmitCleanup(
 	if err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	err = tx.Commit(ctx)
+	if err != nil {
 		return err
 	}
-	klog.Infof("SUBMIT CLEANUP ending for %d", fluxID)
+	if fluxID < 0 {
+		klog.Infof("SUBMIT CLEANUP ending for unschedulable job")
+	} else {
+		klog.Infof("SUBMIT CLEANUP ending for %d", fluxID)
+	}
 	return nil
 }
 
 // deleteObjects cleans up (deletes) Kubernetes objects
 // We do this before the call to fluxion so we can be sure the
 // cluster object resources are freed first
-func deleteObjects(ctx context.Context, job *river.Job[CleanupArgs]) error {
+func deleteObjects(ctx context.Context, podspec string) error {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return err
@@ -99,7 +106,7 @@ func deleteObjects(ctx context.Context, job *river.Job[CleanupArgs]) error {
 
 	// Serialize the podspec back to a pod
 	var pod corev1.Pod
-	err = json.Unmarshal([]byte(job.Args.Podspec), &pod)
+	err = json.Unmarshal([]byte(podspec), &pod)
 	if err != nil {
 		return err
 	}
@@ -143,17 +150,73 @@ func deleteJob(ctx context.Context, namespace string, client kubernetes.Interfac
 // Work performs the Cancel action, first cancelling in Kubernetes (if needed)
 // and then cancelling in fluxion.
 func (w CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) error {
-	klog.Infof("[CLEANUP-WORKER-START] Cleanup (cancel) running for jobid %s", job.Args.FluxID)
+
+	// Wrapper to actual cleanup function that can be called from elsewhere
+	return Cleanup(ctx, job.Args.Podspec, job.Args.FluxID, job.Args.Kubernetes, job.Args.GroupName)
+}
+
+// Cleanup handles a call to fluxion to cancel (if appropriate) along with Kubernetes object deletion,
+// and finally, deletion from Pending queue (table) to allow new jobs in
+func Cleanup(
+	ctx context.Context,
+	podspec string,
+	fluxID int64,
+	inKubernetes bool,
+	groupName string,
+) error {
+
+	klog.Infof("[CLEANUP-START] Cleanup (cancel) running for jobid %s", fluxID)
 
 	// First attempt cleanup in the cluster, only if in Kubernetes
-	if job.Args.Kubernetes {
-		err := deleteObjects(ctx, job)
+	if inKubernetes {
+		err := deleteObjects(ctx, podspec)
 
 		// The job might have been deleted another way
 		if err != nil && !errors.IsNotFound(err) {
 			return err
 		}
 	}
+
+	// We only delete from fluxion if there is a flux id
+	// A valid fluxID is 0 or greater
+	var err error
+	if fluxID > -1 {
+		err = deleteFluxion(fluxID)
+		if err != nil {
+			klog.Infof("Error issuing cancel to fluxion for group %s/%s ", groupName)
+		}
+		return err
+	}
+
+	// Serialize the podspec back to a pod
+	var pod corev1.Pod
+	err = json.Unmarshal([]byte(podspec), &pod)
+	if err != nil {
+		return err
+	}
+
+	// Next, delete from the pending table to new pods with same group
+	// TODO should we allow this to continue?
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		klog.Errorf("Issue creating new pool %s", err)
+		return err
+	}
+	defer pool.Close()
+
+	// First check - a pod group in pending is not allowed to enqueue new pods.
+	// This means the job is submit / running (and not completed
+	_, err = pool.Exec(context.Background(), queries.DeleteFromPendingQuery, groupName, pod.Namespace)
+	if err != nil {
+		klog.Infof("Error deleting Pod %s/%s from pending queue", pod.Namespace, pod.Name)
+		return err
+	}
+	klog.Infof("[CLEANUP-COMPLETE] for group %s (flux job id %d)", groupName, fluxID)
+	return nil
+}
+
+// deleteFluxion issues a cancel to Fluxion, our scheduler
+func deleteFluxion(fluxID int64) error {
 
 	// Connect to the Fluxion service. Returning an error means we retry
 	// see: https://riverqueue.com/docs/job-retries
@@ -172,7 +235,7 @@ func (w CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) er
 	// Prepare the request to cancel
 	// https://github.com/flux-framework/flux-sched/blob/master/resource/reapi/bindings/go/src/fluxcli/reapi_cli.go#L226
 	request := &pb.CancelRequest{
-		FluxID: uint64(job.Args.FluxID),
+		FluxID: uint64(fluxID),
 
 		// Don't return an error if the job id does not exist. See:
 		NoExistOK: true,
@@ -184,9 +247,6 @@ func (w CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) er
 	response, err := fluxion.Cancel(fluxionCtx, request)
 	if err != nil {
 		klog.Errorf("[Fluxnetes] Issue with cancel %s %s", response.Error, err)
-		return err
 	}
-	klog.Infof("[CLEANUP-WORKER-COMPLETE] for group %s (flux job id %d)",
-		job.Args.GroupName, job.Args.FluxID)
-	return nil
+	return err
 }

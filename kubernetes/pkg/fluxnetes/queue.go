@@ -21,6 +21,7 @@ import (
 	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/queries"
 	strategies "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 )
 
 const (
@@ -58,7 +59,7 @@ type QueueEvent struct {
 
 // NewQueue starts a new queue with a river client
 func NewQueue(ctx context.Context, handle framework.Handle) (*Queue, error) {
-	dbPool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +72,7 @@ func NewQueue(ctx context.Context, handle framework.Handle) (*Queue, error) {
 
 	// Each strategy has its own worker type
 	strategy.AddWorkers(workers)
-	riverClient, err := river.NewClient(riverpgxv5.New(dbPool), &river.Config{
+	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		// Change the verbosity of the logger here
 		Logger: slog.New(&slogutil.SlogMessageOnlyHandler{Level: slog.LevelWarn}),
 		Queues: map[string]river.QueueConfig{
@@ -103,7 +104,7 @@ func NewQueue(ctx context.Context, handle framework.Handle) (*Queue, error) {
 
 	queue := Queue{
 		riverClient:      riverClient,
-		Pool:             dbPool,
+		Pool:             pool,
 		Strategy:         strategy,
 		Context:          ctx,
 		ReservationDepth: depth,
@@ -160,26 +161,26 @@ func (q *Queue) GetInformer() cache.SharedIndexInformer {
 // Enqueue a new job to the provisional queue
 // 1. Assemble (discover or define) the group
 // 2. Add to provisional table
-func (q *Queue) Enqueue(pod *corev1.Pod) error {
+func (q *Queue) Enqueue(pod *corev1.Pod) (types.EnqueueStatus, error) {
 
 	// Get the pod name, duration (seconds) and size, first from labels, then defaults
 	groupName := groups.GetPodGroupName(pod)
 	size, err := groups.GetPodGroupSize(pod)
 	if err != nil {
-		return err
+
+		return types.Unknown, err
 	}
 
 	// Get the creation timestamp for the group
 	ts, err := q.GetCreationTimestamp(pod, groupName)
 	if err != nil {
-		return err
+		return types.Unknown, err
 	}
 
 	duration, err := groups.GetPodGroupDuration(pod)
 	if err != nil {
-		return err
+		return types.Unknown, err
 	}
-
 	// Log the namespace/name, group name, and size
 	klog.Infof("Pod %s has Group %s (%d, %d seconds) created at %s", pod.Name, groupName, size, duration, ts)
 
@@ -199,18 +200,21 @@ func (q *Queue) Enqueue(pod *corev1.Pod) error {
 // This mimics what Kubernetes does. Note that jobs can be sorted
 // based on the scheduled at time AND priority.
 func (q *Queue) Schedule() error {
-	// Queue Strategy "Schedule" moves provional to the worker queue
+	// Queue Strategy "Schedule" moves provisional to the worker queue
 	// We get them back in a back to schedule
+
 	batch, err := q.Strategy.Schedule(q.Context, q.Pool, q.ReservationDepth)
 	if err != nil {
 		return err
 	}
 
-	count, err := q.riverClient.InsertMany(q.Context, batch)
-	if err != nil {
-		return err
+	if len(batch) > 0 {
+		count, err := q.riverClient.InsertMany(q.Context, batch)
+		if err != nil {
+			return err
+		}
+		klog.Infof("[Fluxnetes] Schedule inserted %d jobs\n", count)
 	}
-	klog.Infof("[Fluxnetes] Schedule inserted %d jobs\n", count)
 
 	// Post submit functions
 	return q.Strategy.PostSubmit(q.Context, q.Pool, q.riverClient)
@@ -223,8 +227,8 @@ func (q *Queue) GetCreationTimestamp(pod *corev1.Pod, groupName string) (metav1.
 	// First see if we've seen the group before, the creation times are shared across a group
 	ts := metav1.MicroTime{}
 
-	// This query will fail if there are no rows (the podGroup is not known)
-	row := q.Pool.QueryRow(context.Background(), queries.GetTimestampQuery, groupName)
+	// This query will fail if there are no rows (the podGroup is not known in the namespace)
+	row := q.Pool.QueryRow(context.Background(), queries.GetTimestampQuery, groupName, pod.Namespace)
 	err := row.Scan(&ts)
 	if err == nil {
 		klog.Info("Creation timestamp is", ts)

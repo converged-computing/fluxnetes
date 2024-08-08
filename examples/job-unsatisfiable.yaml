@@ -3,12 +3,21 @@ kind: Job
 metadata:
   name: job
 spec:
+  completions: 10
+  parallelism: 10
   template:
+    metadata:
+      labels:
+        fluxnetes.group-name: job
+        fluxnetes.group-size: "10"
     spec:
       schedulerName: fluxnetes
       containers:
       - name: job
         image: busybox
         command: [echo, potato]
+        resources:
+          requests:
+            cpu: 20
       restartPolicy: Never
   backoffLimit: 4

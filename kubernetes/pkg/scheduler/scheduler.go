@@ -479,14 +479,12 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	defer sched.Queue.Pool.Close()
 
 	// Get and run the informer (update, delete pod events)
-	go sched.Queue.GetInformer().Run(ctx.Done())
+	//go sched.Queue.GetInformer().Run(ctx.Done())
 
 	// Make an empty state for now, just for functions
 	state := framework.NewCycleState()
 
-	// TODO try putting this into scheduleOne context to see if events not dropped?
-	// Setup a function to fire when a job event happens
-	// We probably want to add sched functions here
+	// TODO(vsoch): better organize logic in here once more final
 	// Note that we can see queue stats here too:
 	// https://github.com/riverqueue/river/blob/master/event.go#L67-L71
 	waitForJob := func(subscribeChan <-chan *river.Event) {
@@ -502,14 +500,15 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				// The function is added (to work on next) but not yet implemented how
 				// that is going to work
 				klog.Infof("Job Event Received: %s", event.Job.Kind)
-				if event.Job.Kind == "cleanup" {
+				if event.Job.Kind == fluxnetes.CleanupQueue {
 					continue
 				}
-				// TODO: possibly filter to queue name or similar
-				// https://github.com/riverqueue/river/blob/master/riverdriver/riverpgxv5/migration/main/002_initial_schema.up.sql#L1-L9
 
 				// Parse event result into type
 				args := fluxnetes.JobResult{}
+
+				// TODO(vsoch): if we care about this, get from original schedule
+				start := time.Now()
 
 				// We only care about job results to further process (not cleanup)
 				err = json.Unmarshal(event.Job.EncodedArgs[:], &args)
@@ -518,10 +517,34 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				}
 				nodes := args.GetNodes()
 
+				// A cancel means we cannot satisfy, handle the failure
+				if event.Job.State == "cancelled" {
+
+					// TODO need to cancel the rest in the group?
+					klog.Infof("Pod CANCEL cannot be scheduled.")
+					var pod v1.Pod
+					err := json.Unmarshal([]byte(args.PodSpec), &pod)
+					if err != nil {
+						klog.Errorf("Podspec unmarshall error", err)
+					}
+					klog.Infof("Cannot schedule pod %s/%s removing from queue.", pod.Namespace, pod.Name)
+					err = sched.SchedulingQueue.Delete(&pod)
+					if err != nil {
+						logger.Error(err, "Deleting pod from queues")
+					}
+
+					// Remove from cluster
+					// TODO add GroupName to JobResult if we want to print it here
+					sched.Queue.Cleanup(&pod, args.PodSpec, "")
+					return
+				}
+
+				// NOTE: fluxion current just gives back nodes, and then tasks.
+				// This means that we need to get the pods for the group, and then
+				// assign based on tasks. We could also honor the assignment per
+				// podspec, and I need to think of how to do that. TBA
 				if len(nodes) > 0 {
 
-					// TODO(vsoch): if we care about this, get from original schedule
-					start := time.Now()
 					podsToActivate := framework.NewPodsToActivate()
 
 					klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State, nodes)
