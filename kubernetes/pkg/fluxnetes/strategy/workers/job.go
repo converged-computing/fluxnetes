@@ -39,6 +39,9 @@ type JobArgs struct {
 	Duration  int32  `json:"duration"`
 	Namespace string `json:"namespace"`
 
+	// Comma separated list of names
+	Names string `json:"names"`
+
 	// If true, we are allowed to ask Fluxion for a reservation
 	Reservation bool `json:"reservation"`
 
@@ -148,9 +151,13 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 
 	// Get the nodelist and serialize into list of strings for job args
 	nodelist := response.GetNodelist()
+
+	// We assume that each node gets N tasks
 	nodes := []string{}
 	for _, node := range nodelist {
-		nodes = append(nodes, node.NodeID)
+		for i := 0; i < int(node.Tasks); i++ {
+			nodes = append(nodes, node.NodeID)
+		}
 	}
 	nodeStr := strings.Join(nodes, ",")
 

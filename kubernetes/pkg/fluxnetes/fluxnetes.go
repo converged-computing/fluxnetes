@@ -38,10 +38,15 @@ type JobResult struct {
 	Nodes   string `json:"nodes"`
 	PodID   string `json:"podid"`
 	PodSpec string `json:"podspec"`
+	Names   string `json:"names"`
 }
 
 func (j JobResult) GetNodes() []string {
 	return strings.Split(j.Nodes, ",")
+}
+
+func (j JobResult) GetPodNames() []string {
+	return strings.Split(j.Names, ",")
 }
 
 // Fluxnetes (as a plugin) is only enabled for the queue sort

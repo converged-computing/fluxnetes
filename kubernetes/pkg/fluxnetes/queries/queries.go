@@ -16,8 +16,10 @@ const (
 	// 1. Select groups for which the size >= the number of pods we've seen
 	// 2. Then get a representative pod to model the resources for the group
 	// TODO add back created by and then sort by it desc
-	SelectGroupsAtSizeQuery      = "select group_name, group_size, duration, podspec, namespace from groups_provisional where current_size >= group_size;"
-	SelectRepresentativePodQuery = `select podspec from pods_provisional where group_name = $1 and namespace = $2;`
+	SelectGroupsAtSizeQuery = "select group_name, group_size, duration, podspec, namespace from groups_provisional where current_size >= group_size;"
+
+	// This currently will use one podspec (and all names) and we eventually want it to use all podspecs
+	SelectPodsQuery = `select name, podspec from pods_provisional where group_name = $1 and namespace = $2;`
 
 	// Pending queue - inserted after moving from provisional
 	InsertIntoPending = "insert into pending_queue (group_name, namespace, group_size) SELECT '%s', '%s', '%d' WHERE NOT EXISTS (SELECT (group_name, namespace) FROM pending_queue WHERE group_name = '%s' and namespace = '%s');"

@@ -172,9 +172,9 @@ SELECT group_name, group_size from pods_provisional;
 
 ### TODO
 
+- [ ] THIS NEXT: In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
-- [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] Add back in the created at filter / sort to the queues (removed when was testing / debugging harder stuff)
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - Testing:

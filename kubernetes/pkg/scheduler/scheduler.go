@@ -510,12 +510,15 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				// TODO(vsoch): if we care about this, get from original schedule
 				start := time.Now()
 
+				klog.Infof("%s", event.Job.EncodedArgs)
+
 				// We only care about job results to further process (not cleanup)
 				err = json.Unmarshal(event.Job.EncodedArgs[:], &args)
 				if err != nil {
 					continue
 				}
 				nodes := args.GetNodes()
+				podNames := args.GetPodNames()
 
 				// A cancel means we cannot satisfy, handle the failure
 				if event.Job.State == "cancelled" {
@@ -545,8 +548,11 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				// podspec, and I need to think of how to do that. TBA
 				if len(nodes) > 0 {
 
+					// This should not happen!
+					if len(nodes) != len(podNames) {
+						klog.Infof("WARNING: number of pods (tasks) does not match nodes, found %d and %d\n", len(nodes), len(podNames))
+					}
 					podsToActivate := framework.NewPodsToActivate()
-
 					klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State, nodes)
 
 					var pod v1.Pod
@@ -556,25 +562,28 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					}
 					fwk, _ := sched.frameworkForPod(&pod)
 
-					// Parse the pod into PodInfo
-					// TODO add back in creation timestamp
-					podInfo, _ := framework.NewPodInfo(&pod)
-					queuedInfo := &framework.QueuedPodInfo{
-						PodInfo:   podInfo,
-						Timestamp: time.Now(),
-					}
-
-					// This is temporary because we need to still run the scheduling plugins that are in-tree (core)
-					// However - we aren't going to use the scheduleResult from here, we will derive our own!
-					// We eventually want to run this in the function above and provide the same volume, etc.
-					// information to fluxnetes (fluxion) to take into account.
-					schedulingCycleCtx, cancel := context.WithCancel(ctx)
-					defer cancel()
-					_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
-
 					// We need to run a bind for each pod and node
-					for _, node := range nodes {
+					for i, node := range nodes {
 						plan := ScheduleResult{SuggestedHost: node}
+
+						podName := podNames[i]
+						bindingPod := pod.DeepCopy()
+						bindingPod.Name = podName
+
+						// TODO add back in creation timestamp
+						podInfo, _ := framework.NewPodInfo(bindingPod)
+						queuedInfo := &framework.QueuedPodInfo{
+							PodInfo:   podInfo,
+							Timestamp: time.Now(),
+						}
+
+						// This is temporary because we need to still run the scheduling plugins that are in-tree (core)
+						// However - we aren't going to use the scheduleResult from here, we will derive our own!
+						// We eventually want to run this in the function above and provide the same volume, etc.
+						// information to fluxnetes (fluxion) to take into account.
+						schedulingCycleCtx, cancel := context.WithCancel(ctx)
+						defer cancel()
+						_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
 
 						// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).
 						go func() {
