@@ -3,6 +3,8 @@ package fluxnetes
 import (
 	"encoding/json"
 
+	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
+
 	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy/workers"
 
@@ -60,7 +62,6 @@ func (q *Queue) DeletePodEvent(podObj interface{}) {
 	default:
 		klog.Infof("Received unknown update event %s for pod %s/%s", pod.Status.Phase, pod.Namespace, pod.Name)
 	}
-
 	// Get the fluxid from the database, and issue cleanup for the group:
 	// - deletes fluxID if it exists
 	// - cleans up Kubernetes objects up to parent with "true"
@@ -70,6 +71,28 @@ func (q *Queue) DeletePodEvent(podObj interface{}) {
 		klog.Errorf("Issue marshalling podspec for Pod %s/%s", pod.Namespace, pod.Name)
 	}
 	groupName := groups.GetPodGroupName(pod)
+
+	// Since this is a termination event (meaning a single pod has terminated)
+	// we only want to cancel the fluxion job if ALL pods in the group are done.
+	// We don't want to delete the Kubernetes objects - this should happen on its
+	// own, never (if no timeout) or with a cancel job if a duration is set
+	pods, err := q.GetGroupPods(pod.Namespace, groupName)
+	if err != nil {
+		klog.Errorf("Issue getting group pods for %s", groupName)
+	}
 	fluxID, err := q.GetFluxID(pod.Namespace, groupName)
-	err = workers.Cleanup(q.Context, string(podspec), fluxID, true, groupName)
+
+	// Determine finished status (delete via fluxion flux id ONLY if all are finished)
+	finished := true
+	for _, pod := range pods {
+		isFinished := podutil.IsPodPhaseTerminal(pod.Status.Phase)
+		if !isFinished {
+			finished = false
+			break
+		}
+	}
+	if !finished {
+		fluxID = -1
+	}
+	err = workers.Cleanup(q.Context, string(podspec), fluxID, false, groupName)
 }

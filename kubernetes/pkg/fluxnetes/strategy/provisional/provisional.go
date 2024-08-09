@@ -19,28 +19,6 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/types"
 )
 
-// Job Database Model we are retrieving for jobs
-// We will eventually want more than these three
-type JobModel struct {
-	GroupName string `db:"group_name"`
-	Namespace string `db:"namespace"`
-	GroupSize int32  `db:"group_size"`
-	Duration  int32  `db:"duration"`
-	Podspec   string `db:"podspec"`
-}
-
-// This collects the individual pod names and podspecs for the group
-type PodModel struct {
-	Name    string `db:"name"`
-	Podspec string `db:"podspec"`
-}
-
-// GroupModel provides the group name and namespace for groups at size
-type GroupModel struct {
-	GroupName string `db:"group_name"`
-	Namespace string `db:"namespace"`
-}
-
 // The provisional queue is a custom queue (to go along with a queue strategy attached
 // to a Fluxnetes.Queue) that handles ingesting single pods, and delivering them
 // in a particular way (e.g., sorted by timestamp, by group, etc). Since these
@@ -144,7 +122,7 @@ func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Poo
 	}
 	defer rows.Close()
 
-	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[JobModel])
+	models, err := pgx.CollectRows(rows, pgx.RowToStructByName[types.JobModel])
 	if err != nil {
 		klog.Infof("GetReadGroups Error: collect rows for groups at size: %s", err)
 		return nil, err
@@ -167,7 +145,7 @@ func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Poo
 			return nil, err
 		}
 
-		pods, err := pgx.CollectRows(podRows, pgx.RowToStructByName[PodModel])
+		pods, err := pgx.CollectRows(podRows, pgx.RowToStructByName[types.PodModel])
 		if err != nil {
 			klog.Infof("SelectPodsQuery Error: collect rows for groups %s: %s", model.GroupName, err)
 			return nil, err

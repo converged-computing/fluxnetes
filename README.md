@@ -176,6 +176,7 @@ SELECT group_name, group_size from pods_provisional;
    - we likely want to move assume pod outside of that schedule function, or ensure pod passed matches.
 - [ ] Optimize queries.
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
+- [ ] need to cancel reservations and clear table at end of cycle
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - Testing:
   - [ ] need to test duration / completion time works (run job with short duration, should be cancelled/cleaned up)

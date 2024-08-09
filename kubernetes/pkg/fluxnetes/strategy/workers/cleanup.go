@@ -226,8 +226,7 @@ func deleteFluxion(fluxID int64) error {
 	// see: https://riverqueue.com/docs/job-retries
 	conn, err := grpc.Dial("127.0.0.1:4242", grpc.WithInsecure())
 	if err != nil {
-		klog.Error("[Fluxnetes] AskFlux error connecting to server: %v\n", err)
-		return err
+		return fmt.Errorf("[Fluxnetes] AskFlux error connecting to server: %v\n", err)
 	}
 	defer conn.Close()
 
@@ -250,7 +249,8 @@ func deleteFluxion(fluxID int64) error {
 	// and possible already cancelled?
 	_, err = fluxion.Cancel(fluxionCtx, request)
 	if err != nil {
-		klog.Errorf("[Fluxnetes] Issue with cancel %s", err)
+		return fmt.Errorf("[Fluxnetes] Issue with cancel %s", err)
 	}
+	klog.Infof("[Fluxnetes] Successful cancel for jobid %d", fluxID)
 	return err
 }
