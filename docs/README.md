@@ -9,7 +9,7 @@ After install (see the [README](../README.md)) you can create any abstraction (p
 | "fluxnetes.group-name" | The name of the group | fluxnetes-group-<namespace>-<name> |
 | "fluxnetes.group-size" | The size of the group | 1 |
 
-As you might guess, if you specify `fluxnetes` as the scheduler but don't provide any of the above, the defaults are used. This means a single pod becomes a single member group. 
+As you might guess, if you specify `fluxnetes` as the scheduler but don't provide any of the above, the defaults are used. This means a single pod becomes a single member group.
 
 ### Duration
 

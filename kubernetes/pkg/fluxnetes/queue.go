@@ -8,7 +8,10 @@ import (
 	"os"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	klog "k8s.io/klog/v2"
 
 	"github.com/jackc/pgx/v5"
@@ -163,6 +166,50 @@ func (q *Queue) GetFluxID(namespace, groupName string) (int64, error) {
 		return int64(-1), err
 	}
 	return int64(fluxID), err
+}
+
+// Get all pods in a group
+func (q *Queue) GetGroupPods(namespace, groupName string) ([]*corev1.Pod, error) {
+	podlist := []*corev1.Pod{}
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		klog.Errorf("Issue creating new pool %s", err)
+		return podlist, err
+	}
+	defer pool.Close()
+
+	podRows, err := pool.Query(q.Context, queries.GetPodsQuery, groupName, namespace)
+	if err != nil {
+		klog.Infof("GetPodsQuery Error: query for pods for group %s: %s", groupName, err)
+		return nil, err
+	}
+	pods, err := pgx.CollectRows(podRows, pgx.RowToStructByName[types.PodModel])
+	if err != nil {
+		klog.Infof("GetPodsQuery Error: collect rows for groups %s: %s", groupName, err)
+		return nil, err
+	}
+
+	// We need to get a live pod to determine if it is done
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assemble one podspec, and list of pods that we will need
+	for _, item := range pods {
+		// Get the live pod with the API, ignore not found
+		pod, err := clientset.CoreV1().Pods(namespace).Get(q.Context, item.Name, metav1.GetOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			klog.Infof("Error retrieving Pod %s/%s: %s", namespace, item.Name, err)
+		} else {
+			podlist = append(podlist, pod)
+		}
+	}
+	return podlist, nil
 }
 
 // Get a pod (Podspec) on demand

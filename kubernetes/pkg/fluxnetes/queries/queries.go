@@ -14,6 +14,7 @@ const (
 
 	// We need to get a single podspec for binding, etc
 	GetPodspecQuery = "select podspec from pods_provisional where group_name = $1 and name = $2 and namespace = $3;"
+	GetPodsQuery    = "select name, podspec from pods_provisional where group_name = $1 and namespace = $2;"
 
 	// This query should achieve the following
 	// 1. Select groups for which the size >= the number of pods we've seen
