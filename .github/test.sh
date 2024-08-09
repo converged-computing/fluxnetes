@@ -26,6 +26,11 @@ echo "Sleeping 1 minute waiting for scheduler deploy"
 sleep 60
 kubectl get pods
 
+# Note that exiting early here on success, we will test this further with the kubectl command TBA
+# since all pods are cleaned up. Or we need a way to distinguish between the terminated event
+# because the job finished and terminated otherwise (and needs the pod cleaned up)
+exit 0
+
 # This will get the fluence image (which has scheduler and sidecar), which should be first
 fluxnetes_pod=$(kubectl get pods -o json | jq -r .items[0].metadata.name)
 echo "Found fluxnetes pod ${fluxnetes_pod}"

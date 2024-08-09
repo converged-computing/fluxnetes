@@ -34,11 +34,13 @@ var (
 
 // JobResult serializes a result from Fluxnetes in the scheduler back to metadata
 type JobResult struct {
-	JobID   int32  `json:"jobid"`
-	Nodes   string `json:"nodes"`
-	PodID   string `json:"podid"`
-	PodSpec string `json:"podspec"`
-	Names   string `json:"names"`
+	JobID     int32  `json:"jobid"`
+	Nodes     string `json:"nodes"`
+	PodID     string `json:"podid"`
+	PodSpec   string `json:"podspec"`
+	Names     string `json:"names"`
+	Namespace string `json:"namespace"`
+	GroupName string `json:"groupName"`
 }
 
 func (j JobResult) GetNodes() []string {

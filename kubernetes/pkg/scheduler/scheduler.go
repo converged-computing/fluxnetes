@@ -466,6 +466,11 @@ func (sched *Scheduler) Run(ctx context.Context) {
 		logger.Error(fmt.Errorf("Missing plugin"), "Cannot find fluxnetes plugin")
 	}
 
+	// Alert the user to profiles active
+	for profileName, _ := range sched.Profiles {
+		klog.Infof("Found active profile for %s", profileName)
+	}
+
 	// This is the only added line to start our queue
 	logger.Info("[FLUXNETES]", "Starting", "queue")
 	queue, err := fluxnetes.NewQueue(ctx, fwk)
@@ -479,7 +484,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	defer sched.Queue.Pool.Close()
 
 	// Get and run the informer (update, delete pod events)
-	//go sched.Queue.GetInformer().Run(ctx.Done())
+	go sched.Queue.GetInformer().Run(ctx.Done())
 
 	// Make an empty state for now, just for functions
 	state := framework.NewCycleState()
@@ -509,8 +514,6 @@ func (sched *Scheduler) Run(ctx context.Context) {
 
 				// TODO(vsoch): if we care about this, get from original schedule
 				start := time.Now()
-
-				klog.Infof("%s", event.Job.EncodedArgs)
 
 				// We only care about job results to further process (not cleanup)
 				err = json.Unmarshal(event.Job.EncodedArgs[:], &args)
@@ -555,21 +558,21 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					podsToActivate := framework.NewPodsToActivate()
 					klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State, nodes)
 
-					var pod v1.Pod
-					err := json.Unmarshal([]byte(args.PodSpec), &pod)
-					if err != nil {
-						klog.Errorf("Podspec unmarshall error", err)
-					}
-					fwk, _ := sched.frameworkForPod(&pod)
-
 					// We need to run a bind for each pod and node
 					for i, node := range nodes {
 						plan := ScheduleResult{SuggestedHost: node}
 
 						podName := podNames[i]
-						bindingPod := pod.DeepCopy()
-						bindingPod.Name = podName
 
+						// This is the original podspec associated with the name
+						// TODO why would we not be able to retrieve it? And what to do to act on it?
+						bindingPod, err := sched.Queue.GetPodSpec(args.Namespace, podName, args.GroupName)
+						if err != nil {
+							klog.Errorf("Getting original podspec", err)
+						}
+						fwk, _ := sched.frameworkForPod(bindingPod)
+
+						// Parse the pod into PodInfo
 						// TODO add back in creation timestamp
 						podInfo, _ := framework.NewPodInfo(bindingPod)
 						queuedInfo := &framework.QueuedPodInfo{
@@ -577,10 +580,9 @@ func (sched *Scheduler) Run(ctx context.Context) {
 							Timestamp: time.Now(),
 						}
 
-						// This is temporary because we need to still run the scheduling plugins that are in-tree (core)
-						// However - we aren't going to use the scheduleResult from here, we will derive our own!
-						// We eventually want to run this in the function above and provide the same volume, etc.
-						// information to fluxnetes (fluxion) to take into account.
+						// We need to run this here only to populate with PreBind info.
+						// We eventually need to consolidate this with the first time, meaning running it above,
+						// and saving that output to use later (down here)
 						schedulingCycleCtx, cancel := context.WithCancel(ctx)
 						defer cancel()
 						_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
@@ -602,7 +604,6 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					}
 					// assumedPodInfo.Pod should be the Podinfo "QueuedPodInfo"
 
-					klog.Infof("Pod %s", pod)
 				} else {
 					klog.Infof("Got job with state %s\n", event.Job.State)
 				}

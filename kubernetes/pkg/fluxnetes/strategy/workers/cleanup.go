@@ -183,7 +183,7 @@ func Cleanup(
 	if fluxID > -1 {
 		err = deleteFluxion(fluxID)
 		if err != nil {
-			klog.Infof("Error issuing cancel to fluxion for group %s/%s ", groupName)
+			klog.Infof("Error issuing cancel to fluxion for group %s", groupName)
 		}
 		return err
 	}
@@ -204,8 +204,13 @@ func Cleanup(
 	}
 	defer pool.Close()
 
-	// First check - a pod group in pending is not allowed to enqueue new pods.
-	// This means the job is submit / running (and not completed
+	// Delete from pending and pods provisional, meaning we are allowed to accept new pods for the group
+	_, err = pool.Exec(context.Background(), queries.DeleteProvisionalGroupsQuery, groupName, pod.Namespace)
+	if err != nil {
+		klog.Infof("Error deleting Pods %s/%s from provisional queue", pod.Namespace, pod.Name)
+		return err
+	}
+
 	_, err = pool.Exec(context.Background(), queries.DeleteFromPendingQuery, groupName, pod.Namespace)
 	if err != nil {
 		klog.Infof("Error deleting Pod %s/%s from pending queue", pod.Namespace, pod.Name)
@@ -242,11 +247,11 @@ func deleteFluxion(fluxID int64) error {
 	}
 
 	// Assume if there is an error we should try again
-	// TOOD:(vsoch) How to distinguish between cancel error
+	// TODO:(vsoch) How to distinguish between cancel error
 	// and possible already cancelled?
-	response, err := fluxion.Cancel(fluxionCtx, request)
+	_, err = fluxion.Cancel(fluxionCtx, request)
 	if err != nil {
-		klog.Errorf("[Fluxnetes] Issue with cancel %s %s", response.Error, err)
+		klog.Errorf("[Fluxnetes] Issue with cancel %s", err)
 	}
 	return err
 }

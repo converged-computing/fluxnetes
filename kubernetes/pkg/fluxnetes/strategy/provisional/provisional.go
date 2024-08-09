@@ -54,7 +54,7 @@ type ProvisionalQueue struct {
 	pool *pgxpool.Pool
 }
 
-// incrementGroupProvisonal adds 1 to the count of the group provisional queue
+// incrementGroupProvisional adds 1 to the count of the group provisional queue
 func incrementGroupProvisional(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -132,7 +132,7 @@ func (q *ProvisionalQueue) Enqueue(
 	return types.PodEnqueueSuccess, nil
 }
 
-// getReadyGroups gets groups thta are ready for moving from provisional to pending
+// getReadyGroups gets groups that are ready for moving from provisional to pending
 // We also save the pod names so we can assign (bind) to nodes later
 func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, error) {
 
@@ -214,17 +214,12 @@ func (q *ProvisionalQueue) deleteGroups(
 	}
 	klog.Infof("Query is %s", query)
 
-	// This deletes from the single pod provisional table
-	queryProvisional := fmt.Sprintf(queries.DeleteGroupsQuery, query)
-	_, err := pool.Exec(ctx, queryProvisional)
-	if err != nil {
-		klog.Infof("Error with delete provisional pods %s: %s", query, err)
-		return err
-	}
+	// Note that we don't delete from the single pod provisional table
+	// until we have used it to get the podspec (and job is complete)
 
-	// This from the grroup
+	// Delete from the group provisional table, which we don't need anymore
 	query = fmt.Sprintf(queries.DeleteProvisionalGroupsQuery, query)
-	_, err = pool.Exec(ctx, query)
+	_, err := pool.Exec(ctx, query)
 	if err != nil {
 		klog.Infof("Error with delete groups provisional %s: %s", query, err)
 		return err
@@ -250,7 +245,7 @@ func (q *ProvisionalQueue) insertPending(
 	result := pool.SendBatch(ctx, batch)
 	err := result.Close()
 	if err != nil {
-		klog.Errorf("Error comitting to send %d groups into pending %s", len(groups), err)
+		klog.Errorf("Error committing to send %d groups into pending %s", len(groups), err)
 	}
 	return err
 }
