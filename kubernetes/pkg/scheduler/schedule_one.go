@@ -118,14 +118,10 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	// it is an explicit update to an object (TBA).
 	if enqueueStatus == types.GroupAlreadyInPending {
 		klog.Infof("Pod %s/%s has group already in pending queue, rejecting.", pod.Namespace, pod.Name)
-		//		status := framework.NewStatus(framework.UnschedulableAndUnresolvable, "pod group is actively in pending and cannot be changed")
-		//		sched.FailureHandler(ctx, fwk, assumedPodInfo, status, clearNominatedNode, start)
 		deletePod = true
 
 	} else if enqueueStatus == types.PodInvalid {
 		klog.Infof("Pod %s/%s is invalid or erroneous, rejecting.", pod.Namespace, pod.Name)
-		//		status := framework.NewStatus(framework.UnschedulableAndUnresolvable, "pod is invalid or unable to be scheduled")
-		//		sched.FailureHandler(ctx, fwk, assumedPodInfo, status, clearNominatedNode, start)
 		deletePod = true
 
 	} else if enqueueStatus == types.PodEnqueueSuccess {
