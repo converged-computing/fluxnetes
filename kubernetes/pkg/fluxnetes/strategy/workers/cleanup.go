@@ -136,7 +136,6 @@ func deleteObjects(ctx context.Context, podspec string) error {
 func deleteJob(ctx context.Context, namespace string, client kubernetes.Interface, owner metav1.OwnerReference) error {
 	job, err := client.BatchV1().Jobs(namespace).Get(ctx, owner.Name, metav1.GetOptions{})
 	if err != nil {
-		klog.Infof("Error deleting job: %s", err)
 		return err
 	}
 	klog.Infof("Found job %s/%s", job.Namespace, job.Name)
@@ -165,7 +164,7 @@ func Cleanup(
 	groupName string,
 ) error {
 
-	klog.Infof("[CLEANUP-START] Cleanup (cancel) running for jobid %s", fluxID)
+	klog.Infof("[CLEANUP-START] Cleanup (cancel) running for jobid %d", fluxID)
 
 	// First attempt cleanup in the cluster, only if in Kubernetes
 	if inKubernetes {
@@ -183,7 +182,7 @@ func Cleanup(
 	if fluxID > -1 {
 		err = deleteFluxion(fluxID)
 		if err != nil {
-			klog.Infof("Error issuing cancel to fluxion for group %s", groupName)
+			klog.Infof("Error issuing cancel to fluxion for group '%s' and fluxID %d", groupName, fluxID)
 		}
 		return err
 	}
@@ -199,7 +198,7 @@ func Cleanup(
 	// TODO should we allow this to continue?
 	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
-		klog.Errorf("Issue creating new pool %s", err)
+		klog.Errorf("Issue creating new pool during cancel: %s", err)
 		return err
 	}
 	defer pool.Close()

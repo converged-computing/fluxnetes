@@ -585,6 +585,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 						// and saving that output to use later (down here)
 						schedulingCycleCtx, cancel := context.WithCancel(ctx)
 						defer cancel()
+
 						_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
 
 						// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).

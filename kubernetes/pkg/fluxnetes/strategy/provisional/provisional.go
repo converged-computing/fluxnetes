@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	corev1 "k8s.io/api/core/v1"
@@ -106,9 +107,9 @@ func (q *ProvisionalQueue) Enqueue(
 
 	// Insert or fall back if does not exists to doing nothing
 	// TODO add back timestamp, and optimize this function to minimize database exec calls
-	// ts := &pgtype.Timestamptz{Time: group.Timestamp.Time, Valid: true}
+	ts := &pgtype.Timestamptz{Time: group.Timestamp.Time, Valid: true}
 	query := fmt.Sprintf(queries.InsertIntoProvisionalQuery, string(podspec), pod.Namespace, pod.Name, group.Duration, group.Name, group.Name, pod.Namespace, pod.Name)
-	_, err = pool.Exec(context.Background(), query)
+	_, err = pool.Exec(context.Background(), query, ts)
 	if err != nil {
 		klog.Infof("Error inserting pod %s/%s into provisional queue", pod.Namespace, pod.Name)
 		return types.Unknown, err
@@ -120,11 +121,10 @@ func (q *ProvisionalQueue) Enqueue(
 		return types.Unknown, err
 	}
 
-	// Next add to group provisional - will only add if does not exist, and if so, we make count 1 to
-	// avoid doing the increment call.
-	// TODO eventually need to insert timestamp here
+	// Next add to group provisional - will only add if does not exist
+	// and if so, we make count 1 to avoid incremental call
 	query = fmt.Sprintf(queries.InsertIntoGroupProvisional, group.Name, pod.Namespace, group.Size, group.Duration, string(podspec), group.Name, pod.Namespace)
-	_, err = pool.Exec(ctx, query)
+	_, err = pool.Exec(ctx, query, ts)
 	if err != nil {
 		klog.Infof("Error inserting group into provisional %s", err)
 		return types.Unknown, err
