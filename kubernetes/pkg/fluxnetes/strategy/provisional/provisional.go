@@ -28,6 +28,12 @@ type JobModel struct {
 	Podspec   string `db:"podspec"`
 }
 
+// This collects the individual pod names and podspecs for the group
+type PodModel struct {
+	Name    string `db:"name"`
+	Podspec string `db:"podspec"`
+}
+
 // GroupModel provides the group name and namespace for groups at size
 type GroupModel struct {
 	GroupName string `db:"group_name"`
@@ -48,7 +54,7 @@ type ProvisionalQueue struct {
 	pool *pgxpool.Pool
 }
 
-// incrementGroupProvisonal adds 1 to the count of the group provisional queue
+// incrementGroupProvisional adds 1 to the count of the group provisional queue
 func incrementGroupProvisional(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -126,7 +132,8 @@ func (q *ProvisionalQueue) Enqueue(
 	return types.PodEnqueueSuccess, nil
 }
 
-// getReadyGroups gets groups thta are ready for moving from provisional to pending
+// getReadyGroups gets groups that are ready for moving from provisional to pending
+// We also save the pod names so we can assign (bind) to nodes later
 func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Pool) ([]workers.JobArgs, error) {
 
 	// First retrieve the group names that are the right size
@@ -143,9 +150,6 @@ func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Poo
 		return nil, err
 	}
 
-	// Get one representative podspec for each
-	var podspec string
-
 	// Collect rows into map, and then slice of jobs
 	// The map whittles down the groups into single entries
 	// We will eventually not want to do that, assuming podspecs are different in a group
@@ -156,11 +160,25 @@ func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Poo
 	// TODO(vsoch) we need to collect all podspecs here and be able to give that to the worker
 	// Right now we just select a representative one for the entire group.
 	for _, model := range models {
-		row := q.pool.QueryRow(ctx, queries.SelectRepresentativePodQuery, string(model.GroupName), string(model.Namespace))
-		err = row.Scan(&podspec)
+
+		podRows, err := q.pool.Query(ctx, queries.SelectPodsQuery, string(model.GroupName), string(model.Namespace))
 		if err != nil {
-			klog.Errorf("Issue scanning podspec: %s", err)
+			klog.Infof("SelectPodsQuery Error: query for pods for group %s: %s", model.GroupName, err)
 			return nil, err
+		}
+
+		pods, err := pgx.CollectRows(podRows, pgx.RowToStructByName[PodModel])
+		if err != nil {
+			klog.Infof("SelectPodsQuery Error: collect rows for groups %s: %s", model.GroupName, err)
+			return nil, err
+		}
+
+		// Assemble one podspec, and list of pods that we will need
+		podlist := []string{}
+		var podspec string
+		for _, pod := range pods {
+			podspec = pod.Podspec
+			podlist = append(podlist, pod.Name)
 		}
 		klog.Infof("parsing group %s", model)
 		jobArgs := workers.JobArgs{
@@ -169,6 +187,7 @@ func (q *ProvisionalQueue) getReadyGroups(ctx context.Context, pool *pgxpool.Poo
 			Duration:  model.Duration,
 			Podspec:   podspec,
 			Namespace: model.Namespace,
+			Names:     strings.Join(podlist, ","),
 		}
 		lookup[model.GroupName+"-"+model.Namespace] = jobArgs
 	}
@@ -195,17 +214,12 @@ func (q *ProvisionalQueue) deleteGroups(
 	}
 	klog.Infof("Query is %s", query)
 
-	// This deletes from the single pod provisional table
-	queryProvisional := fmt.Sprintf(queries.DeleteGroupsQuery, query)
-	_, err := pool.Exec(ctx, queryProvisional)
-	if err != nil {
-		klog.Infof("Error with delete provisional pods %s: %s", query, err)
-		return err
-	}
+	// Note that we don't delete from the single pod provisional table
+	// until we have used it to get the podspec (and job is complete)
 
-	// This from the grroup
+	// Delete from the group provisional table, which we don't need anymore
 	query = fmt.Sprintf(queries.DeleteProvisionalGroupsQuery, query)
-	_, err = pool.Exec(ctx, query)
+	_, err := pool.Exec(ctx, query)
 	if err != nil {
 		klog.Infof("Error with delete groups provisional %s: %s", query, err)
 		return err
@@ -231,7 +245,7 @@ func (q *ProvisionalQueue) insertPending(
 	result := pool.SendBatch(ctx, batch)
 	err := result.Close()
 	if err != nil {
-		klog.Errorf("Error comitting to send %d groups into pending %s", len(groups), err)
+		klog.Errorf("Error committing to send %d groups into pending %s", len(groups), err)
 	}
 	return err
 }

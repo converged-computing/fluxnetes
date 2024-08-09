@@ -42,13 +42,11 @@ type JobArgs struct {
 	// If true, we are allowed to ask Fluxion for a reservation
 	Reservation bool `json:"reservation"`
 
-	// Nodes return to Kubernetes to bind, and MUST
-	// have attributes for the Nodes and Podspecs.
-	// We can eventually have a kubectl command
-	// to get a job too ;)
-	Nodes   string `json:"nodes"`
-	FluxJob int64  `json:"jobid"`
-	PodId   string `json:"podid"`
+	// Nodes return to Kubernetes to bind
+	Nodes string `json:"nodes"`
+
+	// Comma separated list of names
+	Names string `json:"names"`
 }
 
 // Work performs the AskFlux action. Cases include:
@@ -91,7 +89,7 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 	// Prepare the request to allocate.
 	// Note that reserve will just give an ETA for the future.
 	// We don't want to actually run this job again then, because newer
-	// jobs could come in and take precendence. It's more an FYI for the
+	// jobs could come in and take precedence. It's more an FYI for the
 	// user when we expose some kubectl tool.
 	request := &pb.MatchRequest{
 		Podspec: jobspec,
@@ -117,10 +115,18 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		return err
 	}
 
+	// Not reserved AND not allocated indicates not possible
+	if !response.Reserved && !response.Allocated {
+		errorMessage := fmt.Sprintf("Fluxion could not allocate nodes for %s, likely Unsatisfiable", job.Args.GroupName)
+		klog.Info(errorMessage)
+		return river.JobCancel(fmt.Errorf(errorMessage))
+	}
+
 	// Flux job identifier (known to fluxion)
 	fluxID := response.GetFluxID()
 
 	// If it's reserved, we need to add the id to our reservation table
+	// TODO need to clean up this table...
 	if response.Reserved {
 		rRows, err := pool.Query(fluxionCtx, queries.AddReservationQuery, job.Args.GroupName, fluxID)
 		if err != nil {
@@ -129,12 +135,6 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		defer rRows.Close()
 	}
 
-	// Not reserved AND not allocated indicates not possible
-	if !response.Reserved && !response.Allocated {
-		errorMessage := fmt.Sprintf("Fluxion could not allocate nodes for %s, likely Unsatisfiable", job.Args.GroupName)
-		klog.Info(errorMessage)
-		return river.JobCancel(fmt.Errorf(errorMessage))
-	}
 	// This means we didn't get an allocation - we might have a reservation (to do
 	// something with later) but for now we just print it.
 	if !response.Allocated {
@@ -148,19 +148,30 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 
 	// Get the nodelist and serialize into list of strings for job args
 	nodelist := response.GetNodelist()
+
+	// We assume that each node gets N tasks
 	nodes := []string{}
 	for _, node := range nodelist {
-		nodes = append(nodes, node.NodeID)
+		for i := 0; i < int(node.Tasks); i++ {
+			nodes = append(nodes, node.NodeID)
+		}
 	}
 	nodeStr := strings.Join(nodes, ",")
 
+	// Update nodes for the job
 	rows, err := pool.Query(fluxionCtx, queries.UpdateNodesQuery, nodeStr, job.ID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	// Kick off a cleaning job for when everyting should be cancelled, but only if
+	// Add the job id to pending (for later cleanup)
+	_, err = pool.Exec(fluxionCtx, queries.UpdatingPendingWithFluxID, fluxID, job.Args.GroupName, job.Args.Namespace)
+	if err != nil {
+		return err
+	}
+
+	// Kick off a cleaning job for when everything should be cancelled, but only if
 	// there is a deadline set. We can't set a deadline for services, etc.
 	// This is here instead of responding to deletion / termination since a job might
 	// run longer than the duration it is allowed.
@@ -171,6 +182,6 @@ func (w JobWorker) Work(ctx context.Context, job *river.Job[JobArgs]) error {
 		}
 	}
 	klog.Infof("[JOB-WORKER-COMPLETE] nodes allocated %s for group %s (flux job id %d)\n",
-		nodeStr, job.Args.GroupName, job.Args.FluxJob)
+		nodeStr, job.Args.GroupName, fluxID)
 	return nil
 }

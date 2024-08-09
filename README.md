@@ -172,9 +172,9 @@ SELECT group_name, group_size from pods_provisional;
 
 ### TODO
 
-- [ ] I'd like a more efficient query (or strategy) to move pods from provisional into the worker queue. Right now I have three queries and it's too many.
+- [ ] Figure out how In-tree registry plugins (that are related to resources) should be run to inform fluxion
+- [ ] Optimize queries.
 - [ ] Restarting with postgres shouldn't have crashloopbackoff when the database isn't ready yet
-- [ ] In-tree registry plugins (that are related to resources) should be run first to inform fluxion what nodes not to bind, where there are volumes, etc.
 - [ ] Add back in the created at filter / sort to the queues (removed when was testing / debugging harder stuff)
 - [ ] The queue should inherit (and return) the start time (when the pod was first seen) "start" in scheduler.go
 - Testing:
@@ -182,15 +182,10 @@ SELECT group_name, group_size from pods_provisional;
   - [ ] spam submission and test reservations (and cancel)
 - [ ] implement other queue strategies (fcfs and backfill with > 1 reservation depth)
   - fcfs can work by only adding one job (first in provisional) to the worker queue at once, only when it's empty! lol.
-- [ ] Decide what to do on events - currently we delete / cleanup when there is a decided timeout for pod/job
-  - Arguably, we need to respond to these events for services, etc., where a cleanup job is not scheduled.
-  - This means we need a way to issue cancel to fluxion, and for fluxion to distinguish between 404 and another error.
-  - we also need to look up jobid (flux) for a pod given deletion so we can issue cancel
-- [ ] In cleanup we will need to handle [BlockOwnerDeletion](https://github.com/kubernetes/kubernetes/blob/dbc2b0a5c7acc349ea71a14e49913661eaf708d2/staging/src/k8s.io/apimachinery/pkg/apis/meta/v1/types.go#L319). I don't yet understand the cases under which this is used, but likely we want to delete the child object and allow the owner to do whatever is the default (create another pod, etc.)
+- [ ] In cleanup do we need to handle [BlockOwnerDeletion](https://github.com/kubernetes/kubernetes/blob/dbc2b0a5c7acc349ea71a14e49913661eaf708d2/staging/src/k8s.io/apimachinery/pkg/apis/meta/v1/types.go#L319). I don't yet understand the cases under which this is used, but likely we want to delete the child object and allow the owner to do whatever is the default (create another pod, etc.)
 
 Thinking:
 
-- Need to walk through deletion / update process - right now we have cleanup event if there is termination time, otherwise we wait for pod event to informer
 - We can allow trying to schedule jobs in the future, although I'm not sure about that use case (add label to do this)
 - What should we do if a pod is updated, and the group is removed?
 - fluxion is deriving the nodes on its own, but we might get updated nodes from the scheduler. It might be good to think about how to use the fluxion-service container instead.

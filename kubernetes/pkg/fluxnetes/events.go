@@ -1,6 +1,9 @@
 package fluxnetes
 
 import (
+	"encoding/json"
+
+	groups "k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/group"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fluxnetes/strategy/workers"
 
 	corev1 "k8s.io/api/core/v1"
@@ -50,14 +53,6 @@ func (q *Queue) DeletePodEvent(podObj interface{}) {
 		klog.Infof("Received delete event 'Running' for pod %s/%s", pod.Namespace, pod.Name)
 	case corev1.PodSucceeded:
 		klog.Infof("Received delete event 'Succeeded' for pod %s/%s", pod.Namespace, pod.Name)
-		// TODO insert submit cleanup here - get the fluxid from pending?
-		// TODO need to put somewhere to remove from pending
-		// Likely we can keep around the group name and flux id in a database, and get / delete from there.
-		// err = SubmitCleanup(ctx, pool, pod.Spec.ActiveDeadlineSeconds, job.Args.Podspec, int64(fluxID), true, []string{})
-		//if err != nil {
-		//		klog.Errorf("Issue cleaning up deleted pod", err)
-		//	}
-		//}}
 	case corev1.PodFailed:
 		klog.Infof("Received delete event 'Failed' for pod %s/%s", pod.Namespace, pod.Name)
 	case corev1.PodUnknown:
@@ -66,4 +61,15 @@ func (q *Queue) DeletePodEvent(podObj interface{}) {
 		klog.Infof("Received unknown update event %s for pod %s/%s", pod.Status.Phase, pod.Namespace, pod.Name)
 	}
 
+	// Get the fluxid from the database, and issue cleanup for the group:
+	// - deletes fluxID if it exists
+	// - cleans up Kubernetes objects up to parent with "true"
+	// - cleans up job in pending table
+	podspec, err := json.Marshal(pod)
+	if err != nil {
+		klog.Errorf("Issue marshalling podspec for Pod %s/%s", pod.Namespace, pod.Name)
+	}
+	groupName := groups.GetPodGroupName(pod)
+	fluxID, err := q.GetFluxID(pod.Namespace, groupName)
+	err = workers.Cleanup(q.Context, string(podspec), fluxID, true, groupName)
 }

@@ -2,6 +2,7 @@ package fluxnetes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -141,6 +142,52 @@ func (q *Queue) setupEvents() {
 		//		river.EventKindJobSnoozed, (scheduled later, not used yet)
 	)
 	q.EventChannel = &QueueEvent{Function: trigger, Channel: c}
+}
+
+// Common queue / database functions across strategies!
+// GetFluxID returns the flux ID, and -1 if not found (deleted)
+func (q *Queue) GetFluxID(namespace, groupName string) (int64, error) {
+	var fluxID int32 = -1
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		klog.Errorf("Issue creating new pool %s", err)
+		return int64(fluxID), err
+	}
+	defer pool.Close()
+	result := pool.QueryRow(context.Background(), queries.GetFluxID, groupName, namespace)
+	err = result.Scan(&fluxID)
+
+	// This can simply mean it was already deleted from pending
+	if err != nil {
+		klog.Infof("Error retrieving FluxID for %s/%s: %s", groupName, namespace, err)
+		return int64(-1), err
+	}
+	return int64(fluxID), err
+}
+
+// Get a pod (Podspec) on demand
+// We need to be able to do this to complete a scheduling cycle
+// This podSpec will eventually need to go into the full request to
+// ask fluxion for nodes, right now we still use a single representative one
+func (q *Queue) GetPodSpec(namespace, name, groupName string) (*corev1.Pod, error) {
+
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		klog.Errorf("Issue creating new pool %s", err)
+		return nil, err
+	}
+	defer pool.Close()
+
+	var podspec string
+	result := pool.QueryRow(context.Background(), queries.GetPodspecQuery, groupName, name, namespace)
+	err = result.Scan(&podspec)
+	if err != nil {
+		klog.Infof("Error scanning podspec for %s/%s", namespace, name)
+		return nil, err
+	}
+	var pod corev1.Pod
+	err = json.Unmarshal([]byte(podspec), &pod)
+	return &pod, err
 }
 
 // GetInformer returns the pod informer to run as a go routine

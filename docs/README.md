@@ -9,8 +9,7 @@ After install (see the [README](../README.md)) you can create any abstraction (p
 | "fluxnetes.group-name" | The name of the group | fluxnetes-group-<namespace>-<name> |
 | "fluxnetes.group-size" | The size of the group | 1 |
 
-As you might guess, if you specify `fluxnetes` as the scheduler but don't provide any of the above, the defaults are used. This means a single
-pod becomes a single member group. 
+As you might guess, if you specify `fluxnetes` as the scheduler but don't provide any of the above, the defaults are used. This means a single pod becomes a single member group. 
 
 ### Duration
 
@@ -63,18 +62,29 @@ As you can see in the picture, there is a Queue Manager. The Queue manager is st
 1. We receive single pods (after being sorted by the Fluxnetes plugin) according to group name and time created.
 2. We add them to a provisional table, where we also save that information along with size.
  - a single pod is a group of size 1
+ - this provisional table will be kept until the group is entirely completed, as we use it to get podspecs
 3. For each run of the Kubernetes `ScheduleOne` function (meaning we receive a new pod) we:
- - add to the provisional table
- - check the table for pod groups that have reached the desired size
- - submit the jobs to the worker queue that have, and remove from the provisional table
+ - Enqueue
+   - add to the pod provisional table and (if not known) the group provisional table, which holds a count
+ - Schedule
+   - check the table for pod groups that have reached the desired size
+   - submit the jobs to the worker queue that have, and remove from the provisional table
 4. Once in the worker queue, they are ordered by Priority and scheduledAt time.
-5. The worker function does a call to fluxion `MatchAllocateElseReserve`
+5. The worker function does a call to fluxion `MatchAllocateElseReserve` (up to some reservation depth)
  - A reservation is put back into the queue - it will be run again!
  - The reservation can be saved somewhere to inform the user (some future kubectl plugin)
  - we can also ask the worker to run its "work" function in the future, either at onset or some event in the run
-6. If allocated, the event goes back to the main schedule loop and the binding occurs
+6. Events are received back in the main Schedule->Run function
+ - A successfully completed job with nodes is an allocation. We take the list of nodes and pod names and bind them all at once.
+ - A cancelled job is cleaned up. This means something happened that we deemed it unschedulable / unsatisfiable
+ - A group that has not yet been allocated or run won't show up here!
+7. For both cancelled and completed, we perform cleanup
+ - The Fluxion Job ID is cancelled, if we have one
+ - The pod is deleted  (terminated) and we walk up to the root object (e.g., Job) to delete the rest
+ - The pod is removed from the pods provisional table, and the group from pending
+   - This opens up the group name and namespace (unique identifiers) to accept new groups
 
-We currently don't elegantly handle the scheduleCycle and bindingCycle call (in that we might want to give metadata to fluxion that goes into them). This needs to be done!
+For jobs with durations set that don't finish in time, a cleanup job is submit that will trigger at the time to run the same cleanup function above. If pods / groups finish early, a deletion event is triggered that does the same.  We currently don't elegantly handle the scheduleCycle and bindingCycle call (in that we might want to give metadata to fluxion that goes into them). This needs to be done!
 
 #### Queue Strategies
 

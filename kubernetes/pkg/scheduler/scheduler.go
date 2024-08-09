@@ -466,6 +466,11 @@ func (sched *Scheduler) Run(ctx context.Context) {
 		logger.Error(fmt.Errorf("Missing plugin"), "Cannot find fluxnetes plugin")
 	}
 
+	// Alert the user to profiles active
+	for profileName, _ := range sched.Profiles {
+		klog.Infof("Found active profile for %s", profileName)
+	}
+
 	// This is the only added line to start our queue
 	logger.Info("[FLUXNETES]", "Starting", "queue")
 	queue, err := fluxnetes.NewQueue(ctx, fwk)
@@ -479,7 +484,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	defer sched.Queue.Pool.Close()
 
 	// Get and run the informer (update, delete pod events)
-	//go sched.Queue.GetInformer().Run(ctx.Done())
+	go sched.Queue.GetInformer().Run(ctx.Done())
 
 	// Make an empty state for now, just for functions
 	state := framework.NewCycleState()
@@ -516,6 +521,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					continue
 				}
 				nodes := args.GetNodes()
+				podNames := args.GetPodNames()
 
 				// A cancel means we cannot satisfy, handle the failure
 				if event.Job.State == "cancelled" {
@@ -545,36 +551,41 @@ func (sched *Scheduler) Run(ctx context.Context) {
 				// podspec, and I need to think of how to do that. TBA
 				if len(nodes) > 0 {
 
+					// This should not happen!
+					if len(nodes) != len(podNames) {
+						klog.Infof("WARNING: number of pods (tasks) does not match nodes, found %d and %d\n", len(nodes), len(podNames))
+					}
 					podsToActivate := framework.NewPodsToActivate()
-
 					klog.Infof("Got job with state %s and nodes: %s\n", event.Job.State, nodes)
 
-					var pod v1.Pod
-					err := json.Unmarshal([]byte(args.PodSpec), &pod)
-					if err != nil {
-						klog.Errorf("Podspec unmarshall error", err)
-					}
-					fwk, _ := sched.frameworkForPod(&pod)
-
-					// Parse the pod into PodInfo
-					// TODO add back in creation timestamp
-					podInfo, _ := framework.NewPodInfo(&pod)
-					queuedInfo := &framework.QueuedPodInfo{
-						PodInfo:   podInfo,
-						Timestamp: time.Now(),
-					}
-
-					// This is temporary because we need to still run the scheduling plugins that are in-tree (core)
-					// However - we aren't going to use the scheduleResult from here, we will derive our own!
-					// We eventually want to run this in the function above and provide the same volume, etc.
-					// information to fluxnetes (fluxion) to take into account.
-					schedulingCycleCtx, cancel := context.WithCancel(ctx)
-					defer cancel()
-					_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
-
 					// We need to run a bind for each pod and node
-					for _, node := range nodes {
+					for i, node := range nodes {
 						plan := ScheduleResult{SuggestedHost: node}
+
+						podName := podNames[i]
+
+						// This is the original podspec associated with the name
+						// TODO why would we not be able to retrieve it? And what to do to act on it?
+						bindingPod, err := sched.Queue.GetPodSpec(args.Namespace, podName, args.GroupName)
+						if err != nil {
+							klog.Errorf("Getting original podspec", err)
+						}
+						fwk, _ := sched.frameworkForPod(bindingPod)
+
+						// Parse the pod into PodInfo
+						// TODO add back in creation timestamp
+						podInfo, _ := framework.NewPodInfo(bindingPod)
+						queuedInfo := &framework.QueuedPodInfo{
+							PodInfo:   podInfo,
+							Timestamp: time.Now(),
+						}
+
+						// We need to run this here only to populate with PreBind info.
+						// We eventually need to consolidate this with the first time, meaning running it above,
+						// and saving that output to use later (down here)
+						schedulingCycleCtx, cancel := context.WithCancel(ctx)
+						defer cancel()
+						_, queuedInfo, _ = sched.schedulingCycle(schedulingCycleCtx, state, fwk, queuedInfo, start, podsToActivate)
 
 						// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).
 						go func() {
@@ -593,7 +604,6 @@ func (sched *Scheduler) Run(ctx context.Context) {
 					}
 					// assumedPodInfo.Pod should be the Podinfo "QueuedPodInfo"
 
-					klog.Infof("Pod %s", pod)
 				} else {
 					klog.Infof("Got job with state %s\n", event.Job.State)
 				}

@@ -80,7 +80,6 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	}
 
 	pod := podInfo.Pod
-	//assumedPodInfo := podInfo.DeepCopy()
 
 	// TODO(knelasevero): Remove duplicated keys from log entry calls
 	// When contextualized logging hits GA
@@ -104,7 +103,6 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 
 	// Add the pod to the provisional queue
 	klog.Infof("Running enqueue for pod %s/%s", pod.Namespace, pod.Name)
-	//	start := time.Now()
 	enqueueStatus, err := sched.Queue.Enqueue(pod)
 	if err != nil {
 		klog.Infof("Enqueue for pod %s/%s was NOT successful: %s", pod.Namespace, pod.Name, err)
