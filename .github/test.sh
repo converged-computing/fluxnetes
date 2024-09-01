@@ -47,7 +47,7 @@ fluxnetes_scheduler=$(kubectl get pods --selector=job-name=job -o json | jq -r .
 
 echo
 echo "Fluxnetes job pod is ${fluxnetes_job_pod}"
-sleep 10
+sleep 20
 
 # Shared function to check output
 function check_output {
