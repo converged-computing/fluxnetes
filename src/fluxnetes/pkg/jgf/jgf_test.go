@@ -44,8 +44,8 @@ func TestNewFluxJGF(t *testing.T) {
 	fmt.Println(out)
 
 	// Add some nodes!
-	computeNodeA := fluxgraph.MakeNode("node", subnetNodeA.Metadata.Name, 0)
-	computeNodeB := fluxgraph.MakeNode("node", subnetNodeB.Metadata.Name, 1)
+	computeNodeA := fluxgraph.MakeNode("node", subnetNodeA.Metadata.Type, 0)
+	computeNodeB := fluxgraph.MakeNode("node", subnetNodeB.Metadata.Type, 1)
 	fluxgraph.MakeBidirectionalEdge(subnetNodeA.Id, computeNodeA.Id)
 	fluxgraph.MakeBidirectionalEdge(subnetNodeB.Id, computeNodeB.Id)
 
@@ -56,11 +56,11 @@ func TestNewFluxJGF(t *testing.T) {
 	fmt.Println(out)
 
 	// Add a GPU to one, and cores to the other
-	subpath := fmt.Sprintf("%s/%s", subnetNodeA.Metadata.Name, computeNodeA.Metadata.Name)
+	subpath := fmt.Sprintf("%s/%s", subnetNodeA.Metadata.Type, computeNodeA.Metadata.Type)
 	gpuNodeA := fluxgraph.MakeGPU(NvidiaGPU, subpath, 1, 0)
 	fluxgraph.MakeBidirectionalEdge(computeNodeA.Id, gpuNodeA.Id)
 
-	subpath = fmt.Sprintf("%s/%s", subnetNodeB.Metadata.Name, computeNodeB.Metadata.Name)
+	subpath = fmt.Sprintf("%s/%s", subnetNodeB.Metadata.Type, computeNodeB.Metadata.Type)
 	coreNode := fluxgraph.MakeCore(CoreType, subpath, 0)
 	fluxgraph.MakeBidirectionalEdge(computeNodeB.Id, coreNode.Id)
 

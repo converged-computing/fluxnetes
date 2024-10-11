@@ -97,11 +97,9 @@ func (g *FluxJGF) MakeBidirectionalEdge(parent, child string) {
 // MakeEdge creates an edge for the JGF
 func (g *FluxJGF) MakeEdge(source string, target string, contains string) {
 	newedge := edge{
-		Source: source,
-		Target: target,
-		Metadata: edgeMetadata{
-			Name: map[string]string{containmentKey: contains},
-		},
+		Source:   source,
+		Target:   target,
+		Metadata: edgeMetadata{Subsystem: containmentKey},
 	}
 	g.Graph.Edges = append(g.Graph.Edges, newedge)
 }
