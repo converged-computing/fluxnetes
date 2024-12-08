@@ -28,7 +28,7 @@ kind create cluster --config ./examples/kind-config.yaml
 Install the certificate manager:
 
 ```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.1/cert-manager.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
 ```
 
 Then you can deploy as follows:

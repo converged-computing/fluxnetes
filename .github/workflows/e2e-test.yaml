@@ -194,8 +194,8 @@ jobs:
 
     - name: Install Cert Manager
       run: |
-        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.1/cert-manager.yaml
-        sleep 15
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
+        sleep 20
 
     - name: Test Fluxnetes
       run: /bin/bash ./.github/test.sh
